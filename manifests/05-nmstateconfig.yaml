@@ -1,0 +1,90 @@
+---
+apiVersion: agent-install.openshift.io/v1beta1
+kind: NMStateConfig
+metadata:
+  name: spr760-1
+  namespace: bronco
+  labels:
+    cluster-name: bronco
+spec:
+  config:
+    interfaces:
+      - name: eno8303
+        type: ethernet
+        state: up
+        ipv4:
+          enabled: true
+          address:
+            - ip: "192.168.38.145"
+              prefix-length: 26
+          dhcp: false
+        ipv6:
+          enabled: true
+          address:
+            - ip: "2600:52:7:300::145"
+              prefix-length: 64
+          autoconf: false
+          dhcp: false
+      - name: eno8403
+        type: ethernet
+        state: down
+      - name: eno12399
+        type: ethernet
+        state: up
+      - name: eno12409
+        type: ethernet
+        state: down
+      - name: eno12419
+        type: ethernet
+        state: down
+      - name: eno12429
+        type: ethernet
+        state: down
+      - name: ens2f0
+        type: ethernet
+        state: down
+      - name: ens2f1
+        type: ethernet
+        state: down
+      - name: ens2f2
+        type: ethernet
+        state: down
+      - name: ens2f3
+        type: ethernet
+        state: down
+    dns-resolver:
+      config:
+        search:
+          - cars2.lab
+        server:
+          - 192.168.38.12
+          - 2600:52:7:38::12
+    routes:
+      config:
+        - destination: 0.0.0.0/0
+          next-hop-address: 192.168.38.129
+          next-hop-interface: eno8303
+        - destination: ::/0
+          next-hop-address: 2600:52:7:300::1
+          next-hop-interface: eno8303
+  interfaces:
+    - name: eno8303
+      macAddress: "ec:2a:72:51:31:b8"
+    - name: eno8403
+      macAddress: "ec:2a:72:51:31:b9"
+    - name: eno12399
+      macAddress: "40:a6:b7:a8:79:c8"
+    - name: eno12409
+      macAddress: "40:a6:b7:a8:79:c9"
+    - name: eno12419
+      macAddress: "40:a6:b7:a8:79:ca"
+    - name: eno12429
+      macAddress: "40:a6:b7:a8:79:cb"
+    - name: ens2f0
+      macAddress: "50:7c:6f:1f:b3:98"
+    - name: ens2f1
+      macAddress: "50:7c:6f:1f:b3:99"
+    - name: ens2f2
+      macAddress: "50:7c:6f:1f:b3:9a"
+    - name: ens2f3
+      macAddress: "50:7c:6f:1f:b3:9b"

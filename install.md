@@ -1,12 +1,12 @@
 # Bronco SNO Cluster Installation Guide
 
-This document captures the full process for deploying the Bronco Single Node OpenShift (SNO) cluster on the `cars2.lab` environment using the MCE SiteConfig operator and ArgoCD from an ACM hub cluster.
+This document captures the full process for deploying the Bronco Single Node OpenShift (SNO) cluster on the `cars2.lab` environment using the assisted-service and ArgoCD from an ACM hub cluster.
 
 ## Environment Overview
 
 | Component | Detail |
 |-----------|--------|
-| Hub cluster | m4.cars2.lab (OCP 4.18, 3-node compact) |
+| Hub cluster | m4.cars2.lab (OCP 4.18.15, 3-node compact) |
 | Hub console | console-openshift-console.apps.m4.cars2.lab |
 | Hub API | api.m4.cars2.lab:6443 |
 | Hub cluster IP | 192.168.38.111 |
@@ -69,12 +69,43 @@ This creates PVCs on the `lso-filesystemclass` storage class for the database, f
 oc get pv | grep Available
 ```
 
-### Hub Memory Capacity
+### ArgoCD RBAC
 
-The m4 hub is a compact 3-node cluster and can be memory-constrained. If the assisted-service pods are stuck in `Pending`, disable unnecessary MCE components to free resources:
+The ArgoCD application controller service account needs cluster-admin permissions to create the required resources:
+
+```bash
+oc adm policy add-cluster-role-to-user cluster-admin system:serviceaccount:openshift-gitops:openshift-gitops-argocd-application-controller
+```
+
+### Hub Memory and Disk Capacity
+
+The m4 hub is a compact 3-node cluster with 100GB root disks. It can hit memory and disk pressure under load. If pods are stuck in `Pending` or getting evicted:
+
+**Disable unnecessary MCE components to free memory:**
 
 ```bash
 oc patch multiclusterengine multiclusterengine --type=merge -p '{"spec":{"overrides":{"components":[{"name":"hypershift","enabled":false},{"name":"hypershift-local-hosting","enabled":false}]}}}'
+```
+
+**Clean up old audit logs to free disk:**
+
+```bash
+oc debug node/<nodename> -- chroot /host find /var/log/kube-apiserver -name "audit-*.log" -mtime +2 -delete 2>/dev/null
+oc debug node/<nodename> -- chroot /host find /var/log/openshift-apiserver -name "audit-*.log" -mtime +7 -delete 2>/dev/null
+oc debug node/<nodename> -- chroot /host find /var/log/oauth-apiserver -name "audit-*.log" -mtime +7 -delete 2>/dev/null
+```
+
+**Clean up failed/completed pods:**
+
+```bash
+oc delete pods -A --field-selector=status.phase=Succeeded
+oc delete pods -A --field-selector=status.phase=Failed
+```
+
+**Check node conditions:**
+
+```bash
+oc get nodes -o custom-columns="NODE:.metadata.name,MEMORY:.status.conditions[?(@.type=='MemoryPressure')].status,DISK:.status.conditions[?(@.type=='DiskPressure')].status"
 ```
 
 ### ClusterImageSet
@@ -102,94 +133,63 @@ https://github.com/apj72/bronco-sno
 bronco-sno/
 ├── 00-hub-prereqs/
 │   ├── agentserviceconfig.yaml    # Deploys the assisted-service
-│   ├── bmh-secret.yaml            # BMC credentials for iDRAC
-│   ├── namespace.yaml             # bronco namespace
-│   ├── pull-secret.yaml           # Red Hat pull secret (placeholder)
+│   ├── bmh-secret.yaml            # BMC credentials (legacy, kept for reference)
+│   ├── namespace.yaml             # bronco namespace (legacy, kept for reference)
+│   ├── pull-secret.yaml           # Pull secret placeholder
 │   └── kustomization.yaml
 ├── 01-hub-apps/
 │   ├── cars2-clusters-bronco-app.yaml   # ArgoCD Application
 │   └── kustomization.yaml
-├── bronco-clusterinstance.yaml    # ClusterInstance CR for the SNO cluster
-├── bronco-siteconfig.yaml         # Legacy SiteConfig (kept for reference)
+├── manifests/                     # Direct resource manifests (active)
+│   ├── 01-namespace.yaml          # bronco namespace
+│   ├── 02-clusterdeployment.yaml  # Hive ClusterDeployment
+│   ├── 03-agentclusterinstall.yaml # Assisted install config
+│   ├── 04-infraenv.yaml           # Discovery ISO / InfraEnv
+│   ├── 05-nmstateconfig.yaml      # Static network config
+│   ├── 06-baremetalhost.yaml      # BareMetalHost (iDRAC)
+│   ├── 07-managedcluster.yaml     # ACM ManagedCluster + KlusterletAddonConfig
+│   ├── 08-bmh-secret.yaml         # BMC credentials
+│   └── kustomization.yaml
+├── bronco-clusterinstance.yaml    # ClusterInstance (not used - siteconfig operator not available)
+├── bronco-siteconfig.yaml         # Legacy SiteConfig (not used - requires ZTP plugin)
 ├── cis-4.16.yaml                  # Legacy ClusterImageSet (not used)
-├── kustomization.yaml             # Top-level kustomization
+├── kustomization.yaml             # Top-level kustomization -> manifests/
 └── install.md                     # This file
 ```
 
-## Key Design Decision: SiteConfig v1 vs ClusterInstance
+## Design Decisions
 
-The original novacain1 repo used the **legacy SiteConfig** (`ran.openshift.io/v1`) approach, which requires a ZTP kustomize generator plugin installed in the ArgoCD repo-server. This plugin was not configured on the m4 hub and is the older approach.
+### Why Not SiteConfig (ran.openshift.io/v1)?
 
-Starting with MCE 2.7+ (OCP 4.17+), the recommended approach is the **ClusterInstance** CR (`siteconfig.open-cluster-management.io/v1alpha1`), which is processed by the SiteConfig operator built into MCE. This is a standard Kubernetes resource that ArgoCD can sync directly -- no plugins needed.
+The original novacain1 repo used the legacy `SiteConfig` CR which acts as a kustomize generator plugin. This requires the ZTP site-generate plugin to be installed in the ArgoCD repo-server, which was not configured on the m4 hub. Error: `external plugins disabled; unable to load external plugin 'SiteConfig'`
 
-**Key differences:**
-- `SiteConfig` uses a `spec.clusters[]` array and acts as a kustomize generator
-- `ClusterInstance` is a flat CR with cluster config directly in `spec` and is a regular resource
-- `ClusterInstance` is applied as a standard kustomize resource, not a generator
+### Why Not ClusterInstance (siteconfig.open-cluster-management.io/v1alpha1)?
 
-## YAML Changes Made
+MCE 2.9.2 includes the `ClusterInstance` CRD but the SiteConfig operator that reconciles it was not deployed on the hub. No controller pods were found and the component could not be enabled through MCE configuration.
 
-### 1. Converted SiteConfig to ClusterInstance
+### Direct Resource Approach
 
-Created `bronco-clusterinstance.yaml` using the `siteconfig.open-cluster-management.io/v1alpha1` API. All networking, BMC, and node configuration was preserved from the original SiteConfig. The ClusterImageSet was updated to 4.20:
+The manifests in `manifests/` are the individual Kubernetes resources that both SiteConfig and ClusterInstance ultimately generate. They work directly with the assisted-service and Hive operators that are running on the hub. No plugins or additional operators required.
 
-```yaml
-apiVersion: siteconfig.open-cluster-management.io/v1alpha1
-kind: ClusterInstance
-metadata:
-  name: bronco
-  namespace: bronco
-spec:
-  clusterImageSetNameRef: img4.20.14-x86-64-appsub
-  # ... all cluster config directly in spec (not nested under clusters[])
-```
+The resources are:
 
-### 2. Updated kustomization.yaml
+| Resource | API | Purpose |
+|----------|-----|---------|
+| Namespace | v1 | `bronco` namespace for all resources |
+| ClusterDeployment | hive.openshift.io/v1 | Defines the cluster to Hive |
+| AgentClusterInstall | extensions.hive.openshift.io/v1beta1 | Install configuration (networking, image, SSH key) |
+| InfraEnv | agent-install.openshift.io/v1beta1 | Discovery ISO generation |
+| NMStateConfig | agent-install.openshift.io/v1beta1 | Static network config for the node |
+| BareMetalHost | metal3.io/v1alpha1 | Server BMC/iDRAC definition |
+| ManagedCluster | cluster.open-cluster-management.io/v1 | ACM cluster registration |
+| KlusterletAddonConfig | agent.open-cluster-management.io/v1 | ACM addon configuration |
+| Secret | v1 | BMC credentials |
 
-Changed from generator to resource:
-
-```yaml
-# Before (legacy SiteConfig approach)
-generators:
-  - bronco-siteconfig.yaml
-
-# After (ClusterInstance approach)
-resources:
-  - bronco-clusterinstance.yaml
-```
-
-### 3. ArgoCD Application: Repo URL and project updated
-
-In `01-hub-apps/cars2-clusters-bronco-app.yaml`:
-
-```yaml
-# Before
-project: ztp-app-project
-source:
-  path: rhocp-clusters/bronco.cars2.lab
-  repoURL: https://github.com/novacain1/carslab-public
-
-# After
-project: default
-source:
-  path: .
-  repoURL: https://github.com/apj72/bronco-sno
-```
-
-The `ztp-app-project` did not exist on the m4 hub, so `default` is used instead.
-
-### 4. Added AgentServiceConfig
-
-Created `00-hub-prereqs/agentserviceconfig.yaml` to deploy the assisted-service, which was not running on the hub. Uses `lso-filesystemclass` storage.
-
-## ClusterInstance Key Details
-
-The ClusterInstance (`bronco-clusterinstance.yaml`) defines the full SNO deployment:
+## Cluster Configuration Details
 
 - **Cluster name:** bronco
 - **Base domain:** cars2.lab (API will be at `api.bronco.cars2.lab`)
 - **Network plugin:** OVNKubernetes
-- **CPU partitioning:** AllNodes (for telco/DU workloads)
 - **Capability trimming:** Minimal baseline with only `marketplace` and `NodeTuning`
 - **Dual-stack networking:**
   - Cluster network: `10.128.0.0/14` (v4) + `fd01::/48` (v6)
@@ -202,6 +202,7 @@ The ClusterInstance (`bronco-clusterinstance.yaml`) defines the full SNO deploym
   - Root disk: `/dev/disk/by-path/pci-0000:c7:00.0-scsi-0:2:15:0`
   - DNS: `192.168.38.12`, `2600:52:7:38::12`
   - NTP: `clock.cars2.lab`, `clock-v6.cars2.lab`
+  - Default routes: `192.168.38.129` (v4), `2600:52:7:300::1` (v6)
 
 ## Installation Steps
 
@@ -222,17 +223,7 @@ git clone https://github.com/apj72/bronco-sno.git /local_home/ajoyce/bronco-sno
 cd /local_home/ajoyce/bronco-sno
 ```
 
-### Step 3: Check for existing bronco namespace
-
-If re-deploying, ensure no stale namespace exists:
-
-```bash
-oc get project bronco 2>/dev/null && echo "EXISTS" || echo "NOT FOUND"
-```
-
-If it exists from a previous attempt, clean it up before proceeding.
-
-### Step 4: Ensure assisted-service is running
+### Step 3: Ensure assisted-service is running
 
 ```bash
 oc get agentserviceconfig
@@ -247,42 +238,46 @@ oc apply -f 00-hub-prereqs/agentserviceconfig.yaml
 
 Wait for both `assisted-service` and `assisted-image-service` pods to be Running and Ready.
 
-### Step 5: Apply hub prerequisites
+### Step 4: Check for existing bronco namespace
 
-Create the `bronco` namespace and BMC secret:
+If re-deploying, ensure no stale namespace exists:
+
+```bash
+oc get project bronco 2>/dev/null && echo "EXISTS" || echo "NOT FOUND"
+```
+
+If it exists from a previous attempt, delete it and wait for cleanup:
+
+```bash
+oc delete project bronco
+```
+
+### Step 5: Create the pull secret
+
+The pull secret is not included in the repo for security reasons. The namespace will be created by ArgoCD, but the pull secret needs to be created after the namespace exists.
+
+Option A -- Apply manifests first, then create the pull secret:
 
 ```bash
 cd /local_home/ajoyce/bronco-sno
-oc apply -k 00-hub-prereqs/
-```
-
-Expected output:
-```
-namespace/bronco created
-secret/bronco-bmc-creds-secret created
-```
-
-### Step 6: Create the pull secret
-
-The pull secret is not included in the repo for security reasons. Copy the hub's existing pull secret into the `bronco` namespace:
-
-```bash
+oc apply -k manifests/
 oc get secret pull-secret -n openshift-config -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > /tmp/pull-secret.json
 oc create secret generic assisted-deployment-pull-secret -n bronco --from-file=.dockerconfigjson=/tmp/pull-secret.json --type=kubernetes.io/dockerconfigjson
 rm /tmp/pull-secret.json
 ```
 
-Verify both secrets exist:
+Option B -- If using ArgoCD (step 6), create the namespace and pull secret first:
 
 ```bash
-oc get secrets -n bronco
+oc create namespace bronco
+oc get secret pull-secret -n openshift-config -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > /tmp/pull-secret.json
+oc create secret generic assisted-deployment-pull-secret -n bronco --from-file=.dockerconfigjson=/tmp/pull-secret.json --type=kubernetes.io/dockerconfigjson
+rm /tmp/pull-secret.json
 ```
 
-Expected output should show both `assisted-deployment-pull-secret` and `bronco-bmc-creds-secret`.
+### Step 6: Apply via ArgoCD (GitOps approach)
 
-### Step 7: Apply the ArgoCD Application
-
-This triggers ArgoCD to sync the ClusterInstance from Git:
+Apply the ArgoCD Application to trigger a GitOps-managed deployment:
 
 ```bash
 cd /local_home/ajoyce/bronco-sno
@@ -295,55 +290,60 @@ Verify the ArgoCD application is syncing:
 oc get applications.argoproj.io cars2-clusters-bronco -n openshift-gitops
 ```
 
-Expected: `SYNC STATUS: Synced`, `HEALTH STATUS: Healthy`
+Expected: `SYNC STATUS: Synced`, `HEALTH STATUS: Healthy` or `Progressing`
 
-### Step 8: Monitor the installation
+### Step 7: Monitor the installation
 
 Watch the cluster deployment progress:
 
 ```bash
-# Check the ClusterInstance status
-oc get clusterinstance bronco -n bronco
-
 # Check the AgentClusterInstall status
-oc get agentclusterinstall -n bronco
+oc get agentclusterinstall bronco -n bronco
 
 # Watch for the BareMetalHost to be provisioned
 oc get bmh -n bronco
+
+# Watch for the InfraEnv ISO to be created
+oc get infraenv bronco -n bronco
 
 # Watch for the agent to register
 oc get agents -n bronco
 
 # Monitor overall cluster deployment
 oc get managedcluster bronco
+
+# Detailed install progress
+oc get agentclusterinstall bronco -n bronco -o jsonpath='{.status.conditions}' | python3 -m json.tool
 ```
 
 ## Installation Flow Summary
 
-1. ArgoCD syncs the Git repo and applies the ClusterInstance CR
-2. The SiteConfig operator (MCE) processes the ClusterInstance and creates the underlying resources (ClusterDeployment, AgentClusterInstall, BareMetalHost, NMStateConfig, etc.)
-3. The assisted-service generates an ISO discovery image
-4. The hub powers on the server via iDRAC/Redfish and boots from the ISO
-5. The assisted installer agent registers with the hub
-6. Installation proceeds automatically
-7. Once complete, the cluster is imported as a managed cluster
-8. Hub policies (matched by cluster labels) apply day-2 configuration
+1. ArgoCD syncs the Git repo and applies all resources in `manifests/`
+2. Hive creates the ClusterDeployment
+3. The assisted-service processes the AgentClusterInstall and InfraEnv, generating a discovery ISO
+4. The BareMetalHost controller powers on the server via iDRAC/Redfish and boots from the ISO
+5. The discovery agent on the server registers with the assisted-service
+6. The assisted-service validates the host and begins installation
+7. OCP 4.20.14 is installed as a single-node cluster
+8. Once complete, the ManagedCluster is registered with ACM
+9. Hub policies (matched by cluster labels) apply day-2 configuration
 
 ## Troubleshooting
 
-### ArgoCD sync shows "Unknown"
+### ArgoCD sync errors
 
-Check the application status for errors:
+Check the application status:
 
 ```bash
 oc get applications.argoproj.io cars2-clusters-bronco -n openshift-gitops -o yaml | tail -30
 ```
 
 Common issues:
-- **"external plugins disabled; unable to load external plugin 'SiteConfig'"** -- You're using the legacy SiteConfig format. Convert to ClusterInstance (see above).
-- **"Application referencing project X which does not exist"** -- Update the ArgoCD Application to use an existing project (e.g., `default`).
+- **RBAC forbidden** -- Grant cluster-admin to the ArgoCD SA (see prerequisites)
+- **"external plugins disabled"** -- You're using the legacy SiteConfig format, switch to direct manifests
+- **"project X does not exist"** -- Update the ArgoCD Application to use `default` project
 
-### Assisted-service pods stuck in Pending
+### Assisted-service pods stuck in Pending/Evicted
 
 Check for scheduling issues:
 
@@ -353,5 +353,22 @@ oc describe pod <pod-name> -n multicluster-engine | tail -20
 
 Common causes:
 - **Memory pressure** -- Disable unnecessary MCE components (hypershift, discovery)
-- **Disk pressure** -- Check node disk usage
-- **Volume affinity conflict** -- LSO PVs are node-specific; the pod must schedule on the node where PVs are bound
+- **Disk pressure** -- Clean up audit logs and old images (see prerequisites)
+- **Volume affinity conflict** -- LSO PVs are node-specific; check which node has the PVs
+
+### BareMetalHost not provisioning
+
+```bash
+oc get bmh -n bronco -o yaml | grep -A 10 "status:"
+```
+
+Check BMC connectivity from the hub and verify iDRAC credentials.
+
+### Agent not registering
+
+```bash
+oc get infraenv bronco -n bronco -o jsonpath='{.status}'
+oc get agents -n bronco
+```
+
+Verify the server has booted from the discovery ISO and can reach the hub network.

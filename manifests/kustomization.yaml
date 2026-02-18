@@ -1,0 +1,13 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - 01-namespace.yaml
+  - 02-clusterdeployment.yaml
+  - 03-agentclusterinstall.yaml
+  - 04-infraenv.yaml
+  - 05-nmstateconfig.yaml
+  - 06-baremetalhost.yaml
+  - 07-managedcluster.yaml
+  - 08-bmh-secret.yaml

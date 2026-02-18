@@ -1,0 +1,23 @@
+---
+apiVersion: metal3.io/v1alpha1
+kind: BareMetalHost
+metadata:
+  name: spr760-1
+  namespace: bronco
+  annotations:
+    inspect.metal3.io: disabled
+    bmac.agent-install.openshift.io/hostname: spr760-1.bronco.cars2.lab
+    bmac.agent-install.openshift.io/role: master
+  labels:
+    infraenvs.agent-install.openshift.io: bronco
+spec:
+  online: true
+  bootMACAddress: "ec:2a:72:51:31:b8"
+  bootMode: UEFI
+  bmc:
+    address: idrac-virtualmedia://192.168.38.208/redfish/v1/Systems/System.Embedded.1
+    credentialsName: bronco-bmc-creds-secret
+    disableCertificateVerification: true
+  rootDeviceHints:
+    deviceName: "/dev/disk/by-path/pci-0000:c7:00.0-scsi-0:2:15:0"
+  automatedCleaningMode: disabled

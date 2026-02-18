@@ -1,0 +1,21 @@
+---
+apiVersion: hive.openshift.io/v1
+kind: ClusterDeployment
+metadata:
+  name: bronco
+  namespace: bronco
+spec:
+  baseDomain: cars2.lab
+  clusterInstallRef:
+    group: extensions.hive.openshift.io
+    kind: AgentClusterInstall
+    name: bronco
+    version: v1beta1
+  clusterName: bronco
+  platform:
+    agentBareMetal:
+      agentSelector:
+        matchLabels:
+          cluster-name: bronco
+  pullSecretRef:
+    name: assisted-deployment-pull-secret
