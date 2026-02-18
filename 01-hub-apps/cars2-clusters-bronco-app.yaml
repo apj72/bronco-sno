@@ -8,7 +8,7 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: clusters-sub
-  project: ztp-app-project
+  project: default
   source:
     path: .
     repoURL: https://github.com/apj72/bronco-sno
