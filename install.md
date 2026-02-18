@@ -69,6 +69,34 @@ This creates PVCs on the `lso-filesystemclass` storage class for the database, f
 oc get pv | grep Available
 ```
 
+### RHCOS OS Images for Assisted Service
+
+The assisted-service only ships with RHCOS images for the OCP versions it was built with (4.17-4.19 for MCE 2.9.2). To install OCP 4.20, add the RHCOS 4.20 image to the AgentServiceConfig:
+
+```bash
+oc patch agentserviceconfig agent --type=merge -p '{"spec":{"osImages":[{"openshiftVersion":"4.20","cpuArchitecture":"x86_64","url":"https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos/4.20/latest/rhcos-4.20.11-x86_64-live-iso.x86_64.iso","version":"420.94.202502060915-0"}]}}'
+```
+
+The assisted-service pods will restart automatically. Verify with:
+
+```bash
+oc get pods -n multicluster-engine | grep assisted
+```
+
+### Bare Metal Operator: Watch All Namespaces
+
+The metal3 bare metal operator must be configured to watch BMH resources in all namespaces (not just `openshift-machine-api`):
+
+```bash
+oc get provisioning -o jsonpath='{.items[0].spec.watchAllNamespaces}'
+```
+
+If empty or false, enable it:
+
+```bash
+oc patch provisioning provisioning-configuration --type=merge -p '{"spec":{"watchAllNamespaces":true}}'
+```
+
 ### ArgoCD RBAC
 
 The ArgoCD application controller service account needs cluster-admin permissions to create the required resources:
