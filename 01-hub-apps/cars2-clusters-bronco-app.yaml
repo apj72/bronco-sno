@@ -1,0 +1,25 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cars2-clusters-bronco
+  namespace: openshift-gitops
+spec:
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: clusters-sub
+  project: ztp-app-project
+  source:
+    path: rhocp-clusters/bronco.cars2.lab
+    repoURL: https://github.com/novacain1/carslab-public
+    targetRevision: main
+    # uncomment the below plugin if you will be adding the plugin binaries in the same repo->dir where
+    # the sitconfig.yaml exist AND use the ../../hack/patch-argocd-dev.sh script to re-patch the deployment-repo-server
+#    plugin:
+#      name: kustomize-with-local-plugins
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
