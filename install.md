@@ -9,10 +9,13 @@ This document captures the full process for deploying the Bronco Single Node Ope
 | Hub cluster | m4.cars2.lab |
 | Hub console | console-openshift-console.apps.m4.cars2.lab |
 | Hub API | api.m4.cars2.lab:6443 |
-| SSH access | `ssh -A ajoyce@192.168.38.31` |
+| Hub cluster IP | 192.168.38.111 |
+| Jump box (KVM host) | 192.168.38.31 (`ssh -A ajoyce@192.168.38.31`) |
 | SNO target | Bronco (Dell R760, hostname: spr760-1.bronco.cars2.lab) |
+| Bronco iDRAC | 192.168.38.208 |
 | OCP version | 4.20.14 |
 | Git repo | https://github.com/apj72/bronco-sno |
+| Repo clone on jump box | `/local_home/ajoyce/bronco-sno` |
 
 ## Prerequisites
 
@@ -129,44 +132,74 @@ The SiteConfig (`bronco-siteconfig.yaml`) defines the full SNO deployment:
 
 ### Step 1: Log in to the hub cluster
 
+SSH to the jump box, then log in to the hub:
+
 ```bash
 ssh -A ajoyce@192.168.38.31
 oc login https://api.m4.cars2.lab:6443
 oc whoami   # should return kube:admin
 ```
 
-### Step 2: Apply hub prerequisites
+### Step 2: Clone the repo on the jump box
+
+```bash
+git clone https://github.com/apj72/bronco-sno.git /local_home/ajoyce/bronco-sno
+cd /local_home/ajoyce/bronco-sno
+```
+
+### Step 3: Check for existing bronco namespace
+
+If re-deploying, ensure no stale namespace exists:
+
+```bash
+oc get project bronco 2>/dev/null && echo "EXISTS" || echo "NOT FOUND"
+```
+
+If it exists from a previous attempt, clean it up before proceeding.
+
+### Step 4: Apply hub prerequisites
 
 Create the `bronco` namespace and BMC secret:
 
 ```bash
+cd /local_home/ajoyce/bronco-sno
 oc apply -k 00-hub-prereqs/
 ```
 
-This creates:
-- The `bronco` namespace
-- The `bronco-bmc-creds-secret` secret (iDRAC credentials)
-
-### Step 3: Create the pull secret
-
-The pull secret is not included in the repo for security reasons. Create it manually in the `bronco` namespace with your Red Hat pull secret:
-
-```bash
-oc create secret generic assisted-deployment-pull-secret \
-  -n bronco \
-  --from-file=.dockerconfigjson=/path/to/your/pull-secret.json \
-  --type=kubernetes.io/dockerconfigjson
+Expected output:
+```
+namespace/bronco created
+secret/bronco-bmc-creds-secret created
 ```
 
-### Step 4: Apply the ArgoCD Application
+### Step 5: Create the pull secret
+
+The pull secret is not included in the repo for security reasons. Copy the hub's existing pull secret into the `bronco` namespace:
+
+```bash
+oc get secret pull-secret -n openshift-config -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > /tmp/pull-secret.json
+oc create secret generic assisted-deployment-pull-secret -n bronco --from-file=.dockerconfigjson=/tmp/pull-secret.json --type=kubernetes.io/dockerconfigjson
+rm /tmp/pull-secret.json
+```
+
+Verify both secrets exist:
+
+```bash
+oc get secrets -n bronco
+```
+
+Expected output should show both `assisted-deployment-pull-secret` and `bronco-bmc-creds-secret`.
+
+### Step 6: Apply the ArgoCD Application
 
 This triggers the ZTP pipeline:
 
 ```bash
+cd /local_home/ajoyce/bronco-sno
 oc apply -k 01-hub-apps/
 ```
 
-### Step 5: Monitor the installation
+### Step 7: Monitor the installation
 
 Watch the cluster deployment progress:
 
