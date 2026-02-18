@@ -356,6 +356,24 @@ oc get agentclusterinstall bronco -n bronco -o jsonpath='{.status.conditions}' |
 8. Once complete, the ManagedCluster is registered with ACM
 9. Hub policies (matched by cluster labels) apply day-2 configuration
 
+## Post-Install Access
+
+Once the install completes (100%), retrieve the credentials:
+
+```bash
+# Get kubeconfig
+oc get secret bronco-admin-kubeconfig -n bronco -o jsonpath='{.data.kubeconfig}' | base64 -d > /tmp/bronco-kubeconfig
+
+# Get kubeadmin password
+oc get secret bronco-admin-password -n bronco -o jsonpath='{.data.password}' | base64 -d && echo
+
+# Test access
+KUBECONFIG=/tmp/bronco-kubeconfig oc get nodes
+KUBECONFIG=/tmp/bronco-kubeconfig oc get clusterversion
+```
+
+The console is available at: `https://console-openshift-console.apps.bronco.cars2.lab`
+
 ## Troubleshooting
 
 ### ArgoCD sync errors
