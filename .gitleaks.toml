@@ -1,0 +1,7 @@
+[allowlist]
+  description = "Lab environment credentials - internal use only, VPN-restricted access"
+
+  paths = [
+    '''00-hub-prereqs\/bmh-secret\.yaml$''',
+    '''manifests\/08-bmh-secret\.yaml$''',
+  ]
