@@ -136,6 +136,135 @@ oc delete pods -A --field-selector=status.phase=Failed
 oc get nodes -o custom-columns="NODE:.metadata.name,MEMORY:.status.conditions[?(@.type=='MemoryPressure')].status,DISK:.status.conditions[?(@.type=='DiskPressure')].status"
 ```
 
+### DNS Records
+
+The lab DNS server is **dnsmasq** running on `cars2-client` (`192.168.38.12`). DNS records for the bronco cluster must exist before the cluster can be accessed externally. The records are in `/etc/dnsmasq.d/dnsmasq.data312.conf`:
+
+```
+# Bronco SNO cluster DNS
+domain=bronco.cars2.lab,192.168.38.145,192.168.38.145
+dhcp-range= tag:bronco,192.168.38.145,192.168.38.145,3h
+dhcp-option= tag:bronco,option:netmask,255.255.255.192
+dhcp-option= tag:bronco,option:router,192.168.38.129
+dhcp-option= tag:bronco,option:dns-server,192.168.38.12
+dhcp-option= tag:bronco,option:domain-search,bronco.cars2.lab
+dhcp-option= tag:bronco,option:ntp-server,192.168.38.12
+
+# API (IPv4 + IPv6)
+address=/api.bronco.cars2.lab/192.168.38.145
+address=/api.bronco.cars2.lab/2600:52:7:300::145
+ptr-record=145.38.168.192.in-addr.arpa,api.bronco.cars2.lab
+ptr-record=5.4.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.7.0.0.0.2.5.0.0.0.0.6.2.ip6.arpa,api.bronco.cars2.lab
+
+# Wildcard apps (IPv4 + IPv6)
+address=/.apps.bronco.cars2.lab/192.168.38.145
+address=/.apps.bronco.cars2.lab/2600:52:7:300::145
+
+# Node hostname
+dhcp-host=ec:2a:72:51:31:b8,192.168.38.145,spr760-1.bronco.cars2.lab, set:bronco
+address=/spr760-1.bronco.cars2.lab/192.168.38.145
+address=/spr760-1.bronco.cars2.lab/2600:52:7:300::145
+ptr-record=145.38.168.192.in-addr.arpa,spr760-1.bronco.cars2.lab
+ptr-record=5.4.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.7.0.0.0.2.5.0.0.0.0.6.2.ip6.arpa,spr760-1.bronco.cars2.lab
+```
+
+After adding or modifying records, restart dnsmasq:
+
+```bash
+sudo systemctl restart dnsmasq
+```
+
+Verify from the KVM host:
+
+```bash
+dig api.bronco.cars2.lab @192.168.38.12
+dig console-openshift-console.apps.bronco.cars2.lab @192.168.38.12
+```
+
+Both should return `192.168.38.145`.
+
+**Note:** These DNS records are **not** created by the OpenShift installer. They are a manual prerequisite managed on the lab DNS server.
+
+#### Adding DNS records for a new SNO cluster
+
+To add a new SNO cluster to the lab DNS, SSH to the DNS server and edit the dnsmasq config:
+
+```bash
+ssh ajoyce@192.168.38.12
+sudo vi /etc/dnsmasq.d/dnsmasq.data312.conf
+```
+
+Add the following block, replacing the placeholder values:
+
+- `CLUSTERNAME` -- the cluster name (e.g. `bronco`)
+- `NODE_MAC` -- the boot interface MAC address
+- `NODE_HOSTNAME` -- the node FQDN (e.g. `spr760-1.bronco.cars2.lab`)
+- `IPV4` -- the node's IPv4 address (e.g. `192.168.38.145`)
+- `IPV6` -- the node's IPv6 address (e.g. `2600:52:7:300::145`)
+- `IPV4_REVERSE` -- the reversed IPv4 octets (e.g. `145.38.168.192`)
+- `IPV6_REVERSE` -- the fully expanded reversed IPv6 nibbles (see below)
+- `NETMASK` -- the subnet mask (e.g. `255.255.255.192`)
+- `GATEWAY` -- the default gateway (e.g. `192.168.38.129`)
+
+```
+# CLUSTERNAME SNO cluster DNS
+domain=CLUSTERNAME.cars2.lab,IPV4,IPV4
+dhcp-range= tag:CLUSTERNAME,IPV4,IPV4,3h
+dhcp-option= tag:CLUSTERNAME,option:netmask,NETMASK
+dhcp-option= tag:CLUSTERNAME,option:router,GATEWAY
+dhcp-option= tag:CLUSTERNAME,option:dns-server,192.168.38.12
+dhcp-option= tag:CLUSTERNAME,option:domain-search,CLUSTERNAME.cars2.lab
+dhcp-option= tag:CLUSTERNAME,option:ntp-server,192.168.38.12
+
+# API (IPv4 + IPv6)
+address=/api.CLUSTERNAME.cars2.lab/IPV4
+address=/api.CLUSTERNAME.cars2.lab/IPV6
+ptr-record=IPV4_REVERSE.in-addr.arpa,api.CLUSTERNAME.cars2.lab
+ptr-record=IPV6_REVERSE.ip6.arpa,api.CLUSTERNAME.cars2.lab
+
+# API internal (IPv4 + IPv6)
+address=/api-int.CLUSTERNAME.cars2.lab/IPV4
+address=/api-int.CLUSTERNAME.cars2.lab/IPV6
+
+# Wildcard apps (IPv4 + IPv6)
+address=/.apps.CLUSTERNAME.cars2.lab/IPV4
+address=/.apps.CLUSTERNAME.cars2.lab/IPV6
+
+# Node hostname
+dhcp-host=NODE_MAC,IPV4,NODE_HOSTNAME, set:CLUSTERNAME
+address=/NODE_HOSTNAME/IPV4
+address=/NODE_HOSTNAME/IPV6
+ptr-record=IPV4_REVERSE.in-addr.arpa,NODE_HOSTNAME
+ptr-record=IPV6_REVERSE.ip6.arpa,NODE_HOSTNAME
+```
+
+**Generating the reverse IPv6 nibble string:**
+
+The IPv6 PTR record requires the address expanded to full 32 hex digits, reversed character by character, and dot-separated. For example, `2600:52:7:300::145` expands to `2600:0052:0007:0300:0000:0000:0000:0145`, then reversed:
+
+```bash
+python3 -c "
+import ipaddress, sys
+addr = ipaddress.ip_address(sys.argv[1])
+print('.'.join(reversed(addr.exploded.replace(':',''))))
+" 2600:52:7:300::145
+```
+
+Output: `5.4.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.7.0.0.0.2.5.0.0.0.0.6.2`
+
+**After editing, restart dnsmasq and verify:**
+
+```bash
+sudo systemctl restart dnsmasq
+```
+
+From the KVM host:
+
+```bash
+dig api.CLUSTERNAME.cars2.lab @192.168.38.12
+dig console-openshift-console.apps.CLUSTERNAME.cars2.lab @192.168.38.12
+```
+
 ### ClusterImageSet
 
 The hub must have a ClusterImageSet for the target OCP version. Verify:
@@ -373,6 +502,32 @@ KUBECONFIG=/tmp/bronco-kubeconfig oc get clusterversion
 ```
 
 The console is available at: `https://console-openshift-console.apps.bronco.cars2.lab`
+Login with username `kubeadmin` and the password from the command above.
+
+### Accessing from a Local Mac (or other non-lab machine)
+
+Machines outside the lab don't use the lab DNS server (`192.168.38.12`), so `*.cars2.lab` hostnames won't resolve. To fix this, create a macOS resolver file that forwards all `cars2.lab` lookups to the lab DNS:
+
+```bash
+sudo mkdir -p /etc/resolver
+sudo bash -c 'echo "nameserver 192.168.38.12" > /etc/resolver/cars2.lab'
+```
+
+This tells macOS to send any `*.cars2.lab` DNS query to `192.168.38.12`. It applies to all clusters in the lab (m4, bronco, etc.) with no further changes. Your Mac must have network connectivity to `192.168.38.12` (e.g. via VPN).
+
+Verify it works:
+
+```bash
+dig console-openshift-console.apps.bronco.cars2.lab
+ping -c 1 api.bronco.cars2.lab
+```
+
+You can then copy the kubeconfig to your Mac and use it locally:
+
+```bash
+scp ajoyce@192.168.38.31:/tmp/bronco-kubeconfig ~/.kube/bronco-kubeconfig
+KUBECONFIG=~/.kube/bronco-kubeconfig oc get nodes
+```
 
 ## Troubleshooting
 
