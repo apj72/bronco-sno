@@ -327,7 +327,7 @@ AgentClusterInstall CRD on MCE 2.9.x):
 ```yaml
 metadata:
   annotations:
-    agent-install.openshift.io/install-config-overrides: '{"cpuPartitioningMode":"AllNodes","capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["OperatorLifecycleManager","marketplace","NodeTuning"]}}'
+    agent-install.openshift.io/install-config-overrides: '{"cpuPartitioningMode":"AllNodes","capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["NodeTuning","OperatorLifecycleManager","Ingress"]}}'
 ```
 
 1. **`cpuPartitioningMode: AllNodes`** — Enables workload partitioning so that OpenShift
@@ -335,10 +335,11 @@ metadata:
    prerequisite for the day-2 `PerformanceProfile` to isolate workload CPUs. Without it,
    the cluster is not telco RDS compliant.
 
-2. **`baselineCapabilitySet: None`** with `additionalEnabledCapabilities: [marketplace, NodeTuning]`
-   — Disables all optional cluster capabilities except OLM marketplace (needed to install
-   operators) and NodeTuning (needed for PerformanceProfile/Tuned). This reduces the
-   cluster footprint for edge/RAN deployments.
+2. **`baselineCapabilitySet: None`** with `additionalEnabledCapabilities: [NodeTuning, OperatorLifecycleManager, Ingress]`
+   — Disables all optional cluster capabilities except the three required by the
+   telco RDS reference: NodeTuning (PerformanceProfile/Tuned), OperatorLifecycleManager
+   (install day-2 operators), and Ingress (mandatory — installer rejects without it).
+   This reduces the cluster footprint for edge/RAN deployments.
 
 If you need to change either of these, you must **reinstall** the cluster. See
 `Telco_RDS_spoke_install.md` for the full RDS compliance guide and teardown procedure.
@@ -374,7 +375,7 @@ The resources are:
 - **Cluster name:** bronco
 - **Base domain:** cars2.lab (API will be at `api.bronco.cars2.lab`)
 - **Network plugin:** OVNKubernetes
-- **Capability trimming:** `baselineCapabilitySet: None`, only `OperatorLifecycleManager` + `marketplace` + `NodeTuning` enabled
+- **Capability trimming:** `baselineCapabilitySet: None`, only `NodeTuning` + `OperatorLifecycleManager` + `Ingress` enabled
 - **Workload partitioning:** `cpuPartitioningMode: AllNodes` — enables management workload isolation at install time (required for telco RDS compliance)
 - **Dual-stack networking:**
   - Cluster network: `10.128.0.0/14` (v4) + `fd01::/48` (v6)
