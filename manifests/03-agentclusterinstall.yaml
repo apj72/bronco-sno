@@ -5,7 +5,7 @@ metadata:
   name: bronco
   namespace: bronco
   annotations:
-    agent-install.openshift.io/install-config-overrides: '{"cpuPartitioningMode":"AllNodes","capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["marketplace","NodeTuning"]}}'
+    agent-install.openshift.io/install-config-overrides: '{"cpuPartitioningMode":"AllNodes","capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["OperatorLifecycleManager","marketplace","NodeTuning"]}}'
 spec:
   clusterDeploymentRef:
     name: bronco

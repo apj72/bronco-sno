@@ -327,7 +327,7 @@ AgentClusterInstall CRD on MCE 2.9.x):
 ```yaml
 metadata:
   annotations:
-    agent-install.openshift.io/install-config-overrides: '{"cpuPartitioningMode":"AllNodes","capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["marketplace","NodeTuning"]}}'
+    agent-install.openshift.io/install-config-overrides: '{"cpuPartitioningMode":"AllNodes","capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["OperatorLifecycleManager","marketplace","NodeTuning"]}}'
 ```
 
 1. **`cpuPartitioningMode: AllNodes`** — Enables workload partitioning so that OpenShift
@@ -374,7 +374,7 @@ The resources are:
 - **Cluster name:** bronco
 - **Base domain:** cars2.lab (API will be at `api.bronco.cars2.lab`)
 - **Network plugin:** OVNKubernetes
-- **Capability trimming:** `baselineCapabilitySet: None`, only `marketplace` + `NodeTuning` enabled
+- **Capability trimming:** `baselineCapabilitySet: None`, only `OperatorLifecycleManager` + `marketplace` + `NodeTuning` enabled
 - **Workload partitioning:** `cpuPartitioningMode: AllNodes` — enables management workload isolation at install time (required for telco RDS compliance)
 - **Dual-stack networking:**
   - Cluster network: `10.128.0.0/14` (v4) + `fd01::/48` (v6)

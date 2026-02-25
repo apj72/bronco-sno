@@ -38,7 +38,7 @@ These settings **must** be applied during initial cluster installation. They can
 | Requirement | Status | Notes |
 |-------------|--------|-------|
 | `cpuPartitioningMode: AllNodes` | **REQUIRED** — set via `agent-install.openshift.io/install-config-overrides` annotation | Enables workload partitioning at install time |
-| Capability trimming (`baselineCapabilitySet: None`) | **REQUIRED** — set via same annotation | Only `marketplace` + `NodeTuning` enabled |
+| Capability trimming (`baselineCapabilitySet: None`) | **REQUIRED** — set via same annotation | Only `OperatorLifecycleManager` + `marketplace` + `NodeTuning` enabled |
 | OVNKubernetes network plugin | Already configured | Required for telco RDS |
 | UEFI boot mode | Already configured | Set in BareMetalHost |
 | Static networking (NMState) | Already configured | Dual-stack IPv4+IPv6 |
@@ -187,8 +187,11 @@ metadata:
   name: bronco
   namespace: bronco
   annotations:
-    agent-install.openshift.io/install-config-overrides: '{"cpuPartitioningMode":"AllNodes","capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["marketplace","NodeTuning"]}}'
+    agent-install.openshift.io/install-config-overrides: '{"cpuPartitioningMode":"AllNodes","capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["OperatorLifecycleManager","marketplace","NodeTuning"]}}'
 ```
+
+> **Note:** `marketplace` depends on `OperatorLifecycleManager` — omitting OLM causes
+> the install-config validation to fail.
 
 #### 1b. Verify the ManagedCluster labels
 
@@ -954,7 +957,7 @@ Use this checklist to track compliance status after the cluster is fully deploye
 ### Install-Time (Phase 1)
 
 - [ ] `cpuPartitioningMode: AllNodes` set in installConfigOverrides
-- [ ] `baselineCapabilitySet: None` with only `marketplace` + `NodeTuning`
+- [ ] `baselineCapabilitySet: None` with only `OperatorLifecycleManager` + `marketplace` + `NodeTuning`
 - [ ] OVNKubernetes network plugin
 - [ ] UEFI boot mode
 - [ ] Static networking via NMState (dual-stack)
