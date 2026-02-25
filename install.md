@@ -393,14 +393,37 @@ cd /local_home/ajoyce
 sudo su
 ```
 
-The hub uses token-based authentication. Get a token by visiting:
+The hub uses token-based authentication. Either use a saved service account token
+(see below) or get a short-lived token from the web console at:
 `https://oauth-openshift.apps.m4.cars2.lab/oauth/token/request`
-
-Then log in with the token:
 
 ```bash
 oc login --token=<your-token> --server=https://api.m4.cars2.lab:6443
-oc whoami   # should return kube:admin
+oc whoami   # should return kube:admin (or hub-admin SA)
+```
+
+#### Optional: Create a long-lived service account token
+
+To avoid fetching a token from the web console every time, create a service account
+with a long-lived token. Run this once while logged in to the hub:
+
+```bash
+oc create sa hub-admin -n openshift-gitops
+oc adm policy add-cluster-role-to-user cluster-admin -z hub-admin -n openshift-gitops
+oc create token hub-admin -n openshift-gitops --duration=8760h
+```
+
+Save the token on the jump box:
+
+```bash
+echo '<the-token>' > /local_home/ajoyce/hub-token
+chmod 600 /local_home/ajoyce/hub-token
+```
+
+Then future logins become:
+
+```bash
+oc login --token=$(cat /local_home/ajoyce/hub-token) --server=https://api.m4.cars2.lab:6443
 ```
 
 ### Step 2: Clone the repo on the jump box
