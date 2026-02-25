@@ -1148,10 +1148,21 @@ oc patch managedcluster bronco --type=merge -p '{"metadata":{"finalizers":[]}}'
 
 ### Step 2: Delete the ArgoCD Application
 
-Remove the ArgoCD application so it doesn't re-sync and recreate resources:
+Remove the ArgoCD application so it doesn't re-sync and recreate resources. This
+**must** be done before deleting the namespace — the app has `selfHeal: true` and
+`CreateNamespace=true`, so it will recreate everything if left running.
+
+> **Important:** Use `applications.argoproj.io` — plain `application` hits the
+> wrong API group (`app.k8s.io`) and will report `NotFound`.
 
 ```bash
-oc delete application cars2-clusters-bronco -n openshift-gitops --wait=true
+oc delete applications.argoproj.io cars2-clusters-bronco -n openshift-gitops --wait=true
+```
+
+Verify it's gone:
+
+```bash
+oc get applications.argoproj.io -n openshift-gitops | grep bronco
 ```
 
 ### Step 3: Delete the bronco namespace
