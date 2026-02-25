@@ -130,6 +130,8 @@ SSH to the jump box and log in to the hub:
 
 ```bash
 ssh -A ajoyce@192.168.38.31
+cd /local_home/ajoyce
+sudo su
 ```
 
 The hub uses token-based authentication. Get a token from:
@@ -401,6 +403,8 @@ All day-2 commands below run **on the bronco spoke cluster** from the jump box:
 
 ```bash
 ssh -A ajoyce@192.168.38.31
+cd /local_home/ajoyce
+sudo su
 
 # Log in to the hub (get token from https://oauth-openshift.apps.m4.cars2.lab/oauth/token/request)
 oc login --token=<your-token> --server=https://api.m4.cars2.lab:6443
@@ -1112,11 +1116,13 @@ All commands run from the **jump box** against the **hub cluster**.
 
 ```bash
 ssh -A ajoyce@192.168.38.31
+cd /local_home/ajoyce
+sudo su
+
+# Get token from https://oauth-openshift.apps.m4.cars2.lab/oauth/token/request
 oc login --token=<your-token> --server=https://api.m4.cars2.lab:6443
 oc whoami   # should return kube:admin
 ```
-
-Get a token from: `https://oauth-openshift.apps.m4.cars2.lab/oauth/token/request`
 
 ### Step 1: Delete the ManagedCluster
 

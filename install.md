@@ -385,10 +385,12 @@ The resources are:
 
 ### Step 1: Log in to the hub cluster
 
-SSH to the jump box, then log in to the hub:
+SSH to the jump box, switch to the working directory, and become root:
 
 ```bash
 ssh -A ajoyce@192.168.38.31
+cd /local_home/ajoyce
+sudo su
 ```
 
 The hub uses token-based authentication. Get a token by visiting:
@@ -399,12 +401,6 @@ Then log in with the token:
 ```bash
 oc login --token=<your-token> --server=https://api.m4.cars2.lab:6443
 oc whoami   # should return kube:admin
-```
-
-Alternatively, use browser-based login (requires a browser accessible from the jump box):
-
-```bash
-oc login --web https://api.m4.cars2.lab:6443
 ```
 
 ### Step 2: Clone the repo on the jump box
