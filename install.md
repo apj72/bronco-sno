@@ -316,6 +316,25 @@ bronco-sno/
 
 ## Design Decisions
 
+### Telco RDS Install-Time Settings
+
+The `AgentClusterInstall` manifest (`manifests/03-agentclusterinstall.yaml`) includes two
+install-time-only settings in `installConfigOverrides` that **cannot** be changed after
+the cluster is deployed:
+
+1. **`cpuPartitioningMode: AllNodes`** — Enables workload partitioning so that OpenShift
+   management workloads (kubelet, CRI-O, etc.) are pinned to reserved CPUs. This is a
+   prerequisite for the day-2 `PerformanceProfile` to isolate workload CPUs. Without it,
+   the cluster is not telco RDS compliant.
+
+2. **`baselineCapabilitySet: None`** with `additionalEnabledCapabilities: [marketplace, NodeTuning]`
+   — Disables all optional cluster capabilities except OLM marketplace (needed to install
+   operators) and NodeTuning (needed for PerformanceProfile/Tuned). This reduces the
+   cluster footprint for edge/RAN deployments.
+
+If you need to change either of these, you must **reinstall** the cluster. See
+`Telco_RDS_spoke_install.md` for the full RDS compliance guide and teardown procedure.
+
 ### Why Not SiteConfig (ran.openshift.io/v1)?
 
 The original novacain1 repo used the legacy `SiteConfig` CR which acts as a kustomize generator plugin. This requires the ZTP site-generate plugin to be installed in the ArgoCD repo-server, which was not configured on the m4 hub. Error: `external plugins disabled; unable to load external plugin 'SiteConfig'`
@@ -347,7 +366,8 @@ The resources are:
 - **Cluster name:** bronco
 - **Base domain:** cars2.lab (API will be at `api.bronco.cars2.lab`)
 - **Network plugin:** OVNKubernetes
-- **Capability trimming:** Minimal baseline with only `marketplace` and `NodeTuning`
+- **Capability trimming:** `baselineCapabilitySet: None`, only `marketplace` + `NodeTuning` enabled
+- **Workload partitioning:** `cpuPartitioningMode: AllNodes` — enables management workload isolation at install time (required for telco RDS compliance)
 - **Dual-stack networking:**
   - Cluster network: `10.128.0.0/14` (v4) + `fd01::/48` (v6)
   - Service network: `172.30.0.0/16` (v4) + `fd02::/112` (v6)
@@ -478,12 +498,13 @@ oc get agentclusterinstall bronco -n bronco -o jsonpath='{.status.conditions}' |
 1. ArgoCD syncs the Git repo and applies all resources in `manifests/`
 2. Hive creates the ClusterDeployment
 3. The assisted-service processes the AgentClusterInstall and InfraEnv, generating a discovery ISO
+   - `cpuPartitioningMode: AllNodes` and capability trimming are baked into the install config
 4. The BareMetalHost controller powers on the server via iDRAC/Redfish and boots from the ISO
 5. The discovery agent on the server registers with the assisted-service
 6. The assisted-service validates the host and begins installation
-7. OCP 4.20.14 is installed as a single-node cluster
+7. OCP 4.20.14 is installed as a single-node cluster with workload partitioning enabled
 8. Once complete, the ManagedCluster is registered with ACM
-9. Hub policies (matched by cluster labels) apply day-2 configuration
+9. Day-2 configuration is applied (manually or via hub policies) — see `Telco_RDS_spoke_install.md`
 
 ## Post-Install Access
 
@@ -491,18 +512,36 @@ Once the install completes (100%), retrieve the credentials:
 
 ```bash
 # Get kubeconfig
-oc get secret bronco-admin-kubeconfig -n bronco -o jsonpath='{.data.kubeconfig}' | base64 -d > /tmp/bronco-kubeconfig
+oc get secret bronco-admin-kubeconfig -n bronco -o jsonpath='{.data.kubeconfig}' | base64 -d > ~/bronco-kubeconfig
 
 # Get kubeadmin password
 oc get secret bronco-admin-password -n bronco -o jsonpath='{.data.password}' | base64 -d && echo
 
 # Test access
-KUBECONFIG=/tmp/bronco-kubeconfig oc get nodes
-KUBECONFIG=/tmp/bronco-kubeconfig oc get clusterversion
+KUBECONFIG=~/bronco-kubeconfig oc get nodes
+KUBECONFIG=~/bronco-kubeconfig oc get clusterversion
 ```
 
 The console is available at: `https://console-openshift-console.apps.bronco.cars2.lab`
 Login with username `kubeadmin` and the password from the command above.
+
+### Verify Install-Time RDS Settings
+
+After the cluster is accessible, confirm the two install-time settings were applied:
+
+```bash
+export KUBECONFIG=~/bronco-kubeconfig
+
+# Workload partitioning — should print a JSON management annotation
+oc get node -o jsonpath='{.items[0].metadata.annotations.node\.workload\.openshift\.io/management}' && echo
+
+# Capability trimming — should show only marketplace and NodeTuning
+oc get clusterversion version -o jsonpath='{.status.capabilities.enabledCapabilities}' | python3 -m json.tool
+```
+
+If workload partitioning is empty or capabilities show all defaults, the `installConfigOverrides`
+in `manifests/03-agentclusterinstall.yaml` were not applied. The cluster must be torn down and
+reinstalled — see `Telco_RDS_spoke_install.md` Appendix D for the teardown procedure.
 
 ### Accessing from a Local Mac (or other non-lab machine)
 

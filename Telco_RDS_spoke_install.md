@@ -1091,3 +1091,146 @@ MANUAL DAY-2 (on the spoke):
 | Install method | Assisted-service via ArgoCD | Assisted-service via ArgoCD |
 | Logging channel | `stable-6.4` | `stable-6.1` (adjust as needed) |
 | LVM channel | `stable-4.20` | `stable-4.20` |
+
+## Appendix D: Teardown — Returning Bronco to Bare Metal
+
+Use this procedure to completely destroy the bronco cluster and return the Dell R760
+to a powered-off bare metal state, ready for a fresh install. This is useful for
+practising the build/wipe cycle.
+
+All commands run from the **jump box** against the **hub cluster**.
+
+### Prerequisites
+
+```bash
+ssh -A ajoyce@192.168.38.31
+oc login https://api.m4.cars2.lab:6443
+oc whoami   # should return kube:admin
+```
+
+### Step 1: Delete the ManagedCluster
+
+This deregisters bronco from ACM and removes the klusterlet from the spoke. Run
+this first so ACM doesn't try to reconcile resources while we're deleting them.
+
+```bash
+oc delete managedcluster bronco --wait=true
+```
+
+If the ManagedCluster gets stuck in `Terminating`, check for finalizers:
+
+```bash
+oc get managedcluster bronco -o jsonpath='{.metadata.finalizers}' && echo
+```
+
+If stuck, remove finalizers as a last resort (this orphans the klusterlet on the spoke,
+which is fine since we're wiping it):
+
+```bash
+oc patch managedcluster bronco --type=merge -p '{"metadata":{"finalizers":[]}}'
+```
+
+### Step 2: Delete the ArgoCD Application
+
+Remove the ArgoCD application so it doesn't re-sync and recreate resources:
+
+```bash
+oc delete application cars2-clusters-bronco -n openshift-gitops --wait=true
+```
+
+### Step 3: Delete the bronco namespace
+
+This removes all Assisted Installer resources (ClusterDeployment, AgentClusterInstall,
+InfraEnv, BareMetalHost, Agents, Secrets). The BareMetalHost controller will power off
+the Dell R760 via iDRAC as part of deprovisioning.
+
+```bash
+oc delete project bronco
+```
+
+Wait for the namespace to fully terminate:
+
+```bash
+watch oc get project bronco
+```
+
+Once it returns `NotFound`, the teardown is complete. If the namespace gets stuck in
+`Terminating`, check for stuck finalizers:
+
+```bash
+oc get namespace bronco -o jsonpath='{.spec.finalizers}' && echo
+oc get all -n bronco
+oc get agents -n bronco
+oc get bmh -n bronco
+```
+
+Common causes of stuck namespaces:
+- **BareMetalHost stuck deprovisioning** — the iDRAC may be unreachable. Check BMC
+  connectivity (`curl -k https://192.168.38.208/redfish/v1/`). If unreachable, delete
+  the BMH with finalizer removal:
+  ```bash
+  oc patch bmh bronco -n bronco --type=merge -p '{"metadata":{"finalizers":[]}}'
+  ```
+- **Agent resource with finalizer** — remove it:
+  ```bash
+  oc get agents -n bronco -o name | xargs -I{} oc patch {} -n bronco --type=merge -p '{"metadata":{"finalizers":[]}}'
+  ```
+
+### Step 4: Verify the server is powered off
+
+The BareMetalHost controller should have powered off the server via iDRAC. Verify:
+
+```bash
+curl -sk -u root:'RedHatTelco!234' \
+  https://192.168.38.208/redfish/v1/Systems/System.Embedded.1 \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print('Power:', d['PowerState'])"
+```
+
+Expected: `Power: Off`
+
+If the server is still on, power it off manually:
+
+```bash
+curl -sk -u root:'RedHatTelco!234' \
+  -X POST https://192.168.38.208/redfish/v1/Systems/System.Embedded.1/Actions/ComputerSystem.Reset \
+  -H 'Content-Type: application/json' \
+  -d '{"ResetType": "ForceOff"}'
+```
+
+### Step 5: Verify clean state on the hub
+
+```bash
+echo "=== Namespace ===" && oc get project bronco 2>/dev/null || echo "Gone"
+echo "=== ManagedCluster ===" && oc get managedcluster bronco 2>/dev/null || echo "Gone"
+echo "=== ArgoCD App ===" && oc get application cars2-clusters-bronco -n openshift-gitops 2>/dev/null || echo "Gone"
+```
+
+All three should report `Gone`.
+
+### Ready to Rebuild
+
+The server is now powered off and all hub resources are cleaned up. To rebuild,
+follow the installation steps from `install.md` Step 1, or if you want the full
+RDS-compliant build, start from Step 1 in the main body of this document.
+
+Quick rebuild summary:
+
+```bash
+# 1. Pull latest manifests
+cd /local_home/ajoyce/bronco-sno && git pull origin main
+
+# 2. Create namespace and pull secret
+oc create namespace bronco
+oc get secret pull-secret -n openshift-config -o jsonpath='{.data.\.dockerconfigjson}' \
+  | base64 -d > /tmp/pull-secret.json
+oc create secret generic assisted-deployment-pull-secret -n bronco \
+  --from-file=.dockerconfigjson=/tmp/pull-secret.json \
+  --type=kubernetes.io/dockerconfigjson
+rm /tmp/pull-secret.json
+
+# 3. Deploy via ArgoCD
+oc apply -k 01-hub-apps/
+
+# 4. Monitor
+watch -n 15 'oc get agentclusterinstall bronco -n bronco -o jsonpath="{.status.debugInfo.stateInfo}" && echo && oc get bmh,agents -n bronco && oc get managedcluster bronco'
+```
