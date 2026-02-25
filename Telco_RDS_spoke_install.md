@@ -130,7 +130,13 @@ SSH to the jump box and log in to the hub:
 
 ```bash
 ssh -A ajoyce@192.168.38.31
-oc login https://api.m4.cars2.lab:6443
+```
+
+The hub uses token-based authentication. Get a token from:
+`https://oauth-openshift.apps.m4.cars2.lab/oauth/token/request`
+
+```bash
+oc login --token=<your-token> --server=https://api.m4.cars2.lab:6443
 ```
 
 Check for policies that match these labels:
@@ -396,12 +402,14 @@ All day-2 commands below run **on the bronco spoke cluster** from the jump box:
 ```bash
 ssh -A ajoyce@192.168.38.31
 
+# Log in to the hub (get token from https://oauth-openshift.apps.m4.cars2.lab/oauth/token/request)
+oc login --token=<your-token> --server=https://api.m4.cars2.lab:6443
+
 # Get bronco kubeconfig from the hub
-oc login https://api.m4.cars2.lab:6443
-oc get secret bronco-admin-kubeconfig -n bronco -o jsonpath='{.data.kubeconfig}' | base64 -d > /tmp/bronco-kubeconfig
+oc get secret bronco-admin-kubeconfig -n bronco -o jsonpath='{.data.kubeconfig}' | base64 -d > ~/bronco-kubeconfig
 
 # Switch to bronco spoke
-export KUBECONFIG=/tmp/bronco-kubeconfig
+export KUBECONFIG=~/bronco-kubeconfig
 oc get nodes
 oc get clusterversion
 ```
@@ -1104,9 +1112,11 @@ All commands run from the **jump box** against the **hub cluster**.
 
 ```bash
 ssh -A ajoyce@192.168.38.31
-oc login https://api.m4.cars2.lab:6443
+oc login --token=<your-token> --server=https://api.m4.cars2.lab:6443
 oc whoami   # should return kube:admin
 ```
+
+Get a token from: `https://oauth-openshift.apps.m4.cars2.lab/oauth/token/request`
 
 ### Step 1: Delete the ManagedCluster
 

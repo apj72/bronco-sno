@@ -389,8 +389,22 @@ SSH to the jump box, then log in to the hub:
 
 ```bash
 ssh -A ajoyce@192.168.38.31
-oc login https://api.m4.cars2.lab:6443
+```
+
+The hub uses token-based authentication. Get a token by visiting:
+`https://oauth-openshift.apps.m4.cars2.lab/oauth/token/request`
+
+Then log in with the token:
+
+```bash
+oc login --token=<your-token> --server=https://api.m4.cars2.lab:6443
 oc whoami   # should return kube:admin
+```
+
+Alternatively, use browser-based login (requires a browser accessible from the jump box):
+
+```bash
+oc login --web https://api.m4.cars2.lab:6443
 ```
 
 ### Step 2: Clone the repo on the jump box
