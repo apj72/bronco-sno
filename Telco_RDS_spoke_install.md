@@ -37,8 +37,8 @@ These settings **must** be applied during initial cluster installation. They can
 
 | Requirement | Status | Notes |
 |-------------|--------|-------|
-| `cpuPartitioningMode: AllNodes` | **REQUIRED** — must add to `installConfigOverrides` | Enables workload partitioning at install time |
-| Capability trimming (`baselineCapabilitySet: None`) | Already configured | Only `marketplace` + `NodeTuning` enabled |
+| `cpuPartitioningMode: AllNodes` | **REQUIRED** — set via `agent-install.openshift.io/install-config-overrides` annotation | Enables workload partitioning at install time |
+| Capability trimming (`baselineCapabilitySet: None`) | **REQUIRED** — set via same annotation | Only `marketplace` + `NodeTuning` enabled |
 | OVNKubernetes network plugin | Already configured | Required for telco RDS |
 | UEFI boot mode | Already configured | Set in BareMetalHost |
 | Static networking (NMState) | Already configured | Dual-stack IPv4+IPv6 |
@@ -175,43 +175,19 @@ The critical missing piece is `cpuPartitioningMode: AllNodes` in the `installCon
 
 #### 1a. Update `manifests/03-agentclusterinstall.yaml`
 
-Change the `installConfigOverrides` field to include `cpuPartitioningMode`:
+Add the `agent-install.openshift.io/install-config-overrides` **annotation** to enable
+`cpuPartitioningMode` and capability trimming.
+
+> **Important:** The `installConfigOverrides` **spec field** does not exist in the
+> AgentClusterInstall CRD on MCE 2.9.x. Kubernetes silently accepts unknown spec fields
+> but the assisted-service controller ignores them. You **must** use the annotation.
 
 ```yaml
-installConfigOverrides: '{"capabilities":{"baselineCapabilitySet": "None", "additionalEnabledCapabilities": [ "marketplace", "NodeTuning" ] }, "cpuPartitioningMode": "AllNodes"}'
-```
-
-The full file should look like:
-
-```yaml
----
-apiVersion: extensions.hive.openshift.io/v1beta1
-kind: AgentClusterInstall
 metadata:
   name: bronco
   namespace: bronco
-spec:
-  clusterDeploymentRef:
-    name: bronco
-  imageSetRef:
-    name: img4.20.14-x86-64-appsub
-  networking:
-    networkType: OVNKubernetes
-    clusterNetwork:
-      - cidr: 10.128.0.0/14
-        hostPrefix: 23
-      - cidr: fd01::/48
-        hostPrefix: 64
-    serviceNetwork:
-      - 172.30.0.0/16
-      - fd02::/112
-    machineNetwork:
-      - cidr: 192.168.38.128/26
-      - cidr: 2600:52:7:300::0/64
-  provisionRequirements:
-    controlPlaneAgents: 1
-  sshPublicKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDd7Jj5iFCWv9IHJK9H+2O3lyPs36moAxeAUiHvzRS3uzqGxxB33BnTRBNDKsoDFSGJX0J4bd5b+XyCPdhFOfvn/xhmAcm6d8GALS+139e8d+No8h2QgZy0OVJFp844k4nmz4wew5/+X9DN40ZURYerekbVc58hw1+rTu0uM2jQ0cE2QmEf3qGKHx9UJW8t6IsMzwnrikBH30sYqn2NcBE+/c8JzlLc3PvvenlY0iQkpukI1A5E9GGMR9OS/q+w6FH85zvSgUatOV7Q5lg45QUF+V77DrfX5+niI+NK1g70pRvD8481SAdXrHPB5vK4vQEmJ4pz83IKYHVuPzRnjzYKv1jV33oReyyMqyk44Rsfkxl4i5SJ9z7q/EVmTjvurzD6ofi3Dg0+PL18eTcjuPFdCxSCUFsnr5N9CRHCxHRQpxoZTD7sYD4jDGNygawLvhxcvgKGBZzP53NRCzRFOMFmZsLPLQRaNOsgKRPAohmrn5l8+1xG5ltVauOwAFlKUxk="
-  installConfigOverrides: '{"capabilities":{"baselineCapabilitySet": "None", "additionalEnabledCapabilities": [ "marketplace", "NodeTuning" ] }, "cpuPartitioningMode": "AllNodes"}'
+  annotations:
+    agent-install.openshift.io/install-config-overrides: '{"cpuPartitioningMode":"AllNodes","capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["marketplace","NodeTuning"]}}'
 ```
 
 #### 1b. Verify the ManagedCluster labels
@@ -1064,8 +1040,14 @@ MANUAL DAY-2 (on the spoke):
 ### Diff: `manifests/03-agentclusterinstall.yaml`
 
 ```diff
--  installConfigOverrides: '{"capabilities":{"baselineCapabilitySet": "None", "additionalEnabledCapabilities": [ "marketplace", "NodeTuning" ] }}'
-+  installConfigOverrides: '{"capabilities":{"baselineCapabilitySet": "None", "additionalEnabledCapabilities": [ "marketplace", "NodeTuning" ] }, "cpuPartitioningMode": "AllNodes"}'
+ metadata:
+   name: bronco
+   namespace: bronco
++  annotations:
++    agent-install.openshift.io/install-config-overrides: '{"cpuPartitioningMode":"AllNodes","capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["marketplace","NodeTuning"]}}'
+ spec:
+   ...
+-  installConfigOverrides: '{"capabilities":...}'   # WRONG — not a CRD field, silently ignored
 ```
 
 ### Diff: `manifests/07-managedcluster.yaml` (KlusterletAddonConfig — optional)

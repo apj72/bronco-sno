@@ -319,8 +319,16 @@ bronco-sno/
 ### Telco RDS Install-Time Settings
 
 The `AgentClusterInstall` manifest (`manifests/03-agentclusterinstall.yaml`) includes two
-install-time-only settings in `installConfigOverrides` that **cannot** be changed after
-the cluster is deployed:
+install-time-only settings that **cannot** be changed after the cluster is deployed.
+These are set via the `agent-install.openshift.io/install-config-overrides` **annotation**
+(not a spec field — the `installConfigOverrides` spec field does not exist in the
+AgentClusterInstall CRD on MCE 2.9.x):
+
+```yaml
+metadata:
+  annotations:
+    agent-install.openshift.io/install-config-overrides: '{"cpuPartitioningMode":"AllNodes","capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["marketplace","NodeTuning"]}}'
+```
 
 1. **`cpuPartitioningMode: AllNodes`** — Enables workload partitioning so that OpenShift
    management workloads (kubelet, CRI-O, etc.) are pinned to reserved CPUs. This is a
