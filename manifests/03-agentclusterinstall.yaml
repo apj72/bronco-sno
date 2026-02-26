@@ -7,6 +7,8 @@ metadata:
   annotations:
     agent-install.openshift.io/install-config-overrides: '{"cpuPartitioningMode":"AllNodes","capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["NodeTuning","OperatorLifecycleManager","Ingress"]}}'
 spec:
+  manifestsConfigMapRefs:
+    - name: bronco-workload-partitioning
   clusterDeploymentRef:
     name: bronco
   imageSetRef:
