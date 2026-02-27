@@ -457,6 +457,45 @@ spec:
 EOF
 ```
 
+### Step 11b: Create CatalogSource for OLM
+
+> **Important:** Because we trimmed the `marketplace` capability, the
+> `openshift-marketplace` namespace and default CatalogSources are not created
+> automatically. We must create them manually before installing any operators.
+
+```bash
+oc apply -f - <<'EOF'
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-marketplace
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: redhat-operators
+  namespace: openshift-marketplace
+spec:
+  displayName: Red Hat Operators
+  image: registry.redhat.io/redhat/redhat-operator-index:v4.20
+  publisher: Red Hat
+  sourceType: grpc
+  grpcPodConfig:
+    securityContextConfig: restricted
+  updateStrategy:
+    registryPoll:
+      interval: 10m
+EOF
+```
+
+Wait for the catalog pod to be ready:
+
+```bash
+oc get pods -n openshift-marketplace -w
+```
+
+Once the pod shows `1/1 Running`, press `Ctrl+C` and proceed.
+
 ### Step 12: Deploy Day-2 Operators
 
 > **Lab reference:** This is the equivalent of the lab's `02_*_deployment.yaml` files.
@@ -567,7 +606,7 @@ metadata:
   name: cluster-logging
   namespace: openshift-logging
 spec:
-  channel: "stable-6.1"
+  channel: "stable-6.4"
   name: cluster-logging
   source: redhat-operators
   sourceNamespace: openshift-marketplace
