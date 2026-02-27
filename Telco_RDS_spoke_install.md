@@ -370,7 +370,7 @@ oc get network.operator cluster -o jsonpath='{.spec.defaultNetwork.type}'
 
 ---
 
-## Day-2: Manual RDS Configuration on the Spoke
+## Day-2: RDS Configuration on the Spoke
 
 > **Lab reference:** This section follows the same approach as the
 > "Configure Seed Cluster" section of the
@@ -380,6 +380,61 @@ oc get network.operator cluster -o jsonpath='{.spec.defaultNetwork.type}'
 >
 > Lab config files:
 > https://github.com/RHsyseng/5g-ran-deployments-on-ocp-lab/tree/lab-4.20/lab-materials/sno-config
+
+### Choose Your Approach
+
+There are three ways to apply the day-2 RDS configuration, from most manual
+to most automated:
+
+| Approach | When to use | What it does |
+|----------|-------------|--------------|
+| **A. Manual step-by-step** | Learning — understand each component | Walk through Steps 9-18 below, running each command individually |
+| **B. Automated script** | Repeat builds — apply everything in one shot | Run `day2-apply.sh` which executes all Steps 9-17 sequentially |
+| **C. ACM Policies (full GitOps)** | Production — zero-touch day-2 config | Define PolicyGenerator CRs on the hub; ACM pushes config to any matching cluster automatically |
+
+#### Option A: Manual Step-by-Step
+
+Continue reading from Step 9 below. Each step explains what it does and why.
+
+#### Option B: Automated Script
+
+Run the `day2-apply.sh` script to apply all day-2 configuration in one shot.
+This executes Steps 9-17 automatically, waits for operators to install, and
+waits for the node to reboot after the PerformanceProfile is applied.
+
+```bash
+export KUBECONFIG=~/bronco-kubeconfig
+cd /local_home/ajoyce/bronco-sno
+./day2-apply.sh
+```
+
+After the script completes, skip to **Step 18: Final RDS Verification** to
+confirm everything is applied correctly.
+
+#### Option C: ACM Policies (Full Automation)
+
+In production telco deployments, day-2 configuration is not applied manually
+or by script. Instead, it is managed declaratively via ACM policies:
+
+1. **PolicyGenerator CRs** in a Git repo define the desired configuration
+   (PerformanceProfile, SR-IOV, PTP, operator subscriptions, MachineConfigs, etc.)
+2. **ArgoCD** on the hub syncs these PolicyGenerator CRs and renders them into
+   `Policy`, `PlacementBinding`, and `PlacementRule` resources
+3. **ACM** matches policies to clusters via **ManagedCluster labels**
+   (e.g., `common-du-416: "true"`, `group-dellr760-vse4: ""`)
+4. When a spoke cluster joins and has matching labels, ACM automatically
+   pushes all the configuration — no manual intervention required
+
+This is the approach used by **ZTP (Zero Touch Provisioning)** and is
+documented in the [5G RAN RDS Lab — ZTP section](https://labs.sysdeseng.com/5g-ran-deployments-on-ocp-lab/4.20/ztp-at-scale.html).
+
+> **Next step:** After validating the manual/scripted approach on bronco,
+> build the ACM policies so future clusters get day-2 config automatically.
+> This is tracked as a follow-up task.
+
+---
+
+### Manual Day-2 Steps (Option A)
 
 All day-2 commands below run **on the bronco spoke cluster** from the jump box:
 
