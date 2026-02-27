@@ -1321,3 +1321,508 @@ oc apply -k 01-hub-apps/
 # 4. Monitor
 watch -n 15 'oc get agentclusterinstall bronco -n bronco -o jsonpath="{.status.debugInfo.stateInfo}" && echo && oc get bmh,agents -n bronco && oc get managedcluster bronco'
 ```
+
+## Appendix E: Troubleshooting Guide
+
+This appendix documents every issue encountered during bronco builds, with
+symptoms, root causes, and fixes. Issues are grouped by phase.
+
+---
+
+### Phase 1: Hub Login and CLI Access
+
+#### Problem: `oc login` fails — "You must obtain an API token"
+
+**Symptom:**
+```
+oc login https://api.m4.cars2.lab:6443
+Error: You must obtain an API token by visiting...
+```
+
+**Cause:** The hub uses OAuth token-based authentication, not username/password
+from the CLI.
+
+**Fix:** Get a token from the web console and use it:
+```bash
+# Get token from: https://oauth-openshift.apps.m4.cars2.lab/oauth/token/request
+oc login --token=<your-token> --server=https://api.m4.cars2.lab:6443
+```
+
+Or use a saved service account token:
+```bash
+oc login --token=$(cat /local_home/ajoyce/hub-token) --server=https://api.m4.cars2.lab:6443 --insecure-skip-tls-verify
+```
+
+#### Problem: Commands fail with "Missing or incomplete configuration info"
+
+**Symptom:**
+```
+error: Missing or incomplete configuration info. Please point to an existing, complete config file
+```
+
+**Cause:** The `KUBECONFIG` environment variable is set to a file that is
+empty, stale, or was overwritten.
+
+**Fix:** Unset `KUBECONFIG` and re-authenticate:
+```bash
+unset KUBECONFIG
+oc login --token=<your-token> --server=https://api.m4.cars2.lab:6443
+```
+
+#### Problem: Commands hit the wrong cluster (hub vs spoke)
+
+**Symptom:** You expect to see the bronco node but see `supervisor1/2/3`, or
+you expect hub resources but get `NotFound` errors.
+
+**Cause:** `KUBECONFIG` is pointing at the wrong cluster.
+
+**Fix:** Always check which cluster you're on:
+```bash
+oc get nodes    # bronco = spr760-1.bronco.cars2.lab, hub = supervisor1/2/3
+oc whoami       # check identity
+```
+
+To switch to bronco spoke:
+```bash
+unset KUBECONFIG
+oc login --token=$(cat /local_home/ajoyce/hub-token) --server=https://api.m4.cars2.lab:6443 --insecure-skip-tls-verify
+oc get secret bronco-admin-kubeconfig -n bronco -o jsonpath='{.data.kubeconfig}' | base64 -d > ~/bronco-kubeconfig
+export KUBECONFIG=~/bronco-kubeconfig
+```
+
+To switch back to hub:
+```bash
+unset KUBECONFIG
+oc login --token=$(cat /local_home/ajoyce/hub-token) --server=https://api.m4.cars2.lab:6443 --insecure-skip-tls-verify
+```
+
+#### Problem: `git` commands fail with "dubious ownership"
+
+**Symptom:**
+```
+fatal: detected dubious ownership in repository at '/local_home/ajoyce/bronco-sno'
+```
+
+**Cause:** Running `git` as root (`sudo su`) on a repo owned by `ajoyce`.
+
+**Fix:** Either run git commands as `ajoyce` (before `sudo su`), or add a
+safe directory exception:
+```bash
+git config --global --add safe.directory /local_home/ajoyce/bronco-sno
+```
+
+---
+
+### Phase 2: Install-Time Configuration (AgentClusterInstall)
+
+#### Problem: `installConfigOverrides` spec field is silently ignored
+
+**Symptom:** You add `installConfigOverrides` as a field under `spec:` in
+`AgentClusterInstall`, Kubernetes accepts it, but post-install the settings
+(cpuPartitioningMode, capability trimming) are not applied.
+
+**Cause:** The `installConfigOverrides` field does **not exist** in the
+`AgentClusterInstall` CRD on MCE 2.9.x. Kubernetes silently accepts unknown
+spec fields but the assisted-service controller ignores them.
+
+**Fix:** Use the **annotation** instead:
+```yaml
+metadata:
+  annotations:
+    agent-install.openshift.io/install-config-overrides: '{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["NodeTuning","OperatorLifecycleManager","Ingress"]}}'
+```
+
+**How to verify the CRD doesn't have the field:**
+```bash
+oc explain agentclusterinstall.spec --recursive 2>/dev/null | grep -i override
+```
+
+#### Problem: Capability validation error — "marketplace requires OperatorLifecycleManager"
+
+**Symptom:**
+```
+the marketplace capability requires the OperatorLifecycleManager capability
+```
+
+**Cause:** `marketplace` depends on `OperatorLifecycleManager`. If you list
+`marketplace` in `additionalEnabledCapabilities`, you must also include `OperatorLifecycleManager`.
+
+**Fix:** Either add `OperatorLifecycleManager` alongside `marketplace`, or
+remove `marketplace` entirely (it's not required by the telco RDS).
+
+#### Problem: Capability validation error — "the Ingress capability is required"
+
+**Symptom:**
+```
+the Ingress capability is required
+```
+
+**Cause:** `Ingress` is a mandatory capability — the OCP installer rejects any
+configuration that omits it.
+
+**Fix:** Always include `Ingress` in `additionalEnabledCapabilities`. The
+minimum viable set for telco RDS is:
+```json
+["NodeTuning", "OperatorLifecycleManager", "Ingress"]
+```
+
+#### Problem: Workload partitioning not applied despite annotation
+
+**Symptom:** Post-install, the node has no `node.workload.openshift.io/management`
+annotation, and `cpuPartitioningMode` was in the `install-config-overrides` annotation.
+
+**Cause:** The MCE 2.9.x assisted-service does not support `cpuPartitioningMode`
+through the `install-config-overrides` annotation. It is stripped or ignored.
+
+**Known limitation:** Workload partitioning requires either:
+- The **ZTP SiteConfig/ClusterInstance** deployment method
+- A newer MCE version with CRD support for `cpuPartitioningMode`
+
+**Do NOT attempt to fix this by injecting CRI-O/kubelet MachineConfigs via
+`manifestsConfigMapRefs`** — this causes CRI-O to enforce CPU pinning without
+the kubelet and scheduler being aware, leading to a **finalization timeout**
+(see next issue).
+
+#### Problem: "Cluster installation timeout while finalizing"
+
+**Symptom:** The install runs for ~5 hours then fails:
+```
+The installation has failed: Cluster installation timeout while finalizing
+```
+
+**Common causes:**
+
+1. **Workload partitioning MachineConfig without cpuPartitioningMode** —
+   CRI-O enforces CPU pinning but the kubelet/scheduler don't expect it.
+   Cluster operators fail to stabilize. **Fix:** Remove the workload
+   partitioning ConfigMap from `manifestsConfigMapRefs`.
+
+2. **Network issues** — The spoke can't reach the hub or required registries.
+   Check the agent progress for more detail:
+   ```bash
+   oc get agentclusterinstall bronco -n bronco -o jsonpath='{.status.conditions}' | python3 -m json.tool
+   ```
+
+3. **Hardware issues** — Disk, memory, or NIC problems on the bare metal server.
+   Check iDRAC logs.
+
+#### Problem: Newline in annotation causes JSON parse error
+
+**Symptom:**
+```
+invalid character '\n' in string literal
+```
+
+**Cause:** The annotation JSON was pasted across multiple lines in the shell.
+
+**Fix:** The `oc annotate` command or the annotation value in YAML must be a
+**single line** with no embedded newlines. If using `oc annotate`:
+```bash
+oc annotate agentclusterinstall bronco -n bronco \
+  agent-install.openshift.io/install-config-overrides='{"capabilities":{"baselineCapabilitySet":"None","additionalEnabledCapabilities":["NodeTuning","OperatorLifecycleManager","Ingress"]}}' \
+  --overwrite
+```
+
+---
+
+### Phase 3: Teardown and Rebuild
+
+#### Problem: ArgoCD application deletion says "NotFound"
+
+**Symptom:**
+```
+oc delete application cars2-clusters-bronco -n openshift-gitops
+Error from server (NotFound): applications.app.k8s.io "cars2-clusters-bronco" not found
+```
+
+**Cause:** Plain `application` resolves to the `app.k8s.io` API group, not
+the ArgoCD API group.
+
+**Fix:** Use the fully qualified resource name:
+```bash
+oc delete applications.argoproj.io cars2-clusters-bronco -n openshift-gitops --wait=true
+```
+
+#### Problem: Namespace recreated after deletion (ArgoCD selfHeal)
+
+**Symptom:** You delete the bronco namespace, but it immediately reappears:
+```
+Error from server (AlreadyExists): namespaces "bronco" already exists
+```
+
+**Cause:** The ArgoCD application has `selfHeal: true` and `CreateNamespace=true`.
+When it detects the namespace is missing, it recreates everything.
+
+**Fix:** Always delete the ArgoCD application **before** deleting the namespace:
+```bash
+# 1. Delete ArgoCD app first
+oc delete applications.argoproj.io cars2-clusters-bronco -n openshift-gitops --wait=true
+# 2. Delete ManagedCluster
+oc delete managedcluster bronco --wait=true
+# 3. Then delete namespace
+oc delete project bronco
+```
+
+#### Problem: Namespace stuck in Terminating
+
+**Symptom:** `oc get project bronco` shows `Terminating` indefinitely.
+
+**Cause:** Resources with finalizers (BareMetalHost, Agent) are blocking
+namespace deletion, usually because the controller can't complete cleanup
+(e.g., iDRAC unreachable for BMH deprovisioning).
+
+**Fix:** Identify and remove stuck finalizers:
+```bash
+# Check what's blocking
+oc get all -n bronco
+oc get bmh,agents -n bronco
+
+# Remove BMH finalizer
+oc patch bmh spr760-1 -n bronco --type=merge -p '{"metadata":{"finalizers":[]}}'
+
+# Remove Agent finalizers
+oc get agents -n bronco -o name | xargs -I{} oc patch {} -n bronco --type=merge -p '{"metadata":{"finalizers":[]}}'
+```
+
+#### Problem: Agent state shows "installed" on a fresh rebuild
+
+**Symptom:** After teardown and rebuild, the agent registers and immediately
+shows state `installed` instead of `insufficient` → `known` → `installing`.
+
+**Cause:** The assisted-service's internal state (PostgreSQL) retains records
+from the previous installation. It recognizes the host by UUID and thinks
+it's already installed.
+
+**Fix:** Restart the assisted-service pods on the hub to clear cached state,
+then delete the stale agent:
+```bash
+# On the hub
+oc delete pod -l app=assisted-service -n multicluster-engine
+oc wait --for=condition=Ready pod -l app=assisted-service -n multicluster-engine --timeout=180s
+
+# Delete the stale agent
+oc delete agents -n bronco --all
+
+# Force BMH re-creation by deleting it (ArgoCD will recreate)
+oc delete bmh spr760-1 -n bronco
+```
+
+---
+
+### Phase 4: Day-2 Operator Installation
+
+#### Problem: No CatalogSource — operators can't install
+
+**Symptom:** Subscriptions are created but CSVs never appear.
+```bash
+oc get catalogsource -n openshift-marketplace
+No resources found in openshift-marketplace namespace.
+```
+
+**Cause:** The `marketplace` capability was trimmed. Without it, the
+`openshift-marketplace` namespace and default CatalogSources are not
+created automatically.
+
+**Fix:** Create them manually (see Step 11b):
+```bash
+oc apply -f - <<'EOF'
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-marketplace
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: redhat-operators
+  namespace: openshift-marketplace
+spec:
+  displayName: Red Hat Operators
+  image: registry.redhat.io/redhat/redhat-operator-index:v4.20
+  publisher: Red Hat
+  sourceType: grpc
+  grpcPodConfig:
+    securityContextConfig: restricted
+  updateStrategy:
+    registryPoll:
+      interval: 10m
+EOF
+```
+
+Wait for the catalog pod: `oc get pods -n openshift-marketplace -w`
+
+#### Problem: Operator Subscription shows ResolutionFailed
+
+**Symptom:**
+```bash
+oc get sub <name> -n <namespace> -o yaml | grep -A5 status
+# Shows: status: "True", type: ResolutionFailed
+```
+
+**Cause:** The specified `channel` doesn't exist in the operator index for
+this OCP version.
+
+**Fix:** Check available channels and update the subscription:
+```bash
+# List available channels
+oc get packagemanifest <operator-name> -n openshift-marketplace \
+  -o jsonpath='{.status.channels[*].name}' && echo
+
+# Patch the subscription
+oc patch sub <sub-name> -n <namespace> --type=merge -p '{"spec":{"channel":"<correct-channel>"}}'
+```
+
+Known channel issues for OCP 4.20:
+- `cluster-logging`: Use `stable-6.4` (not `stable-6.1`)
+- `lvms-operator`: Use `stable-4.20`
+- `sriov-network-operator`: Use `stable`
+- `ptp-operator`: Use `stable`
+
+#### Problem: "no matching resources found" when waiting for CSV
+
+**Symptom:**
+```
+oc wait clusterserviceversion -l <label> ... --timeout=900s
+error: no matching resources found
+```
+
+**Cause:** The CSV hasn't been created yet — OLM needs time to resolve the
+subscription, create the InstallPlan, and install the operator.
+
+**Fix:** Wait a minute and retry. Check progress with:
+```bash
+oc get sub -A                          # Subscriptions present?
+oc get installplan -n <namespace>      # InstallPlan created?
+oc get csv -n <namespace>              # CSV appearing?
+oc get pods -n openshift-marketplace   # Catalog pod healthy?
+```
+
+#### Problem: SR-IOV CRDs not found after CSV shows Succeeded
+
+**Symptom:**
+```
+no matches for kind "SriovOperatorConfig" in version "sriovnetwork.openshift.io/v1"
+ensure CRDs are installed first
+```
+
+**Cause:** The CSV succeeded but the operator pods haven't started yet, so CRDs
+haven't been registered.
+
+**Fix:** Wait for the operator pods to be running:
+```bash
+oc get pods -n openshift-sriov-network-operator -w
+oc get crd | grep sriov
+```
+
+Once pods are running and CRDs exist, retry the `oc apply`.
+
+---
+
+### Phase 5: Day-2 Configuration
+
+#### Problem: Heredoc YAML fails with "could not find expected ':'"
+
+**Symptom:**
+```
+error: error parsing STDIN: error converting YAML to JSON: yaml: line 10: could not find expected ':'
+```
+
+**Cause:** Leading spaces before `---` document separators or top-level YAML
+keys. In a heredoc, the YAML content must not have extra indentation on
+the top-level keys.
+
+**Fix:** Ensure `apiVersion`, `kind`, `metadata`, `spec`, `---`, and `EOF`
+all start at **column 0** with no leading spaces:
+```bash
+oc apply -f - <<'EOF'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: example
+EOF
+```
+
+**Wrong** (extra spaces before apiVersion and EOF):
+```bash
+oc apply -f - <<'EOF'
+  apiVersion: v1
+  kind: ConfigMap
+  ...
+  EOF          # ← indented EOF won't close the heredoc
+```
+
+#### Problem: Heredoc doesn't close — shell shows ">" prompt
+
+**Symptom:** After pasting a heredoc command, the shell shows `>` and waits
+for more input instead of executing.
+
+**Cause:** The closing `EOF` has leading spaces, or wasn't included in the
+paste.
+
+**Fix:** Type `EOF` at column 0 and press Enter. Or `Ctrl+C` to cancel and
+repaste the entire block, ensuring `EOF` is at the start of the line.
+
+#### Problem: `nft_compat` kernel warning after RT kernel reboot
+
+**Symptom:** Console shows warnings about the `nft_compat` driver during boot.
+
+**Cause:** This is a known kernel message in RHCOS with the RT kernel, related
+to the netfilter compatibility layer.
+
+**Fix:** Ignore it — it's harmless and doesn't affect cluster operation.
+
+#### Problem: MCP stuck updating after MachineConfig changes
+
+**Symptom:** `oc get mcp master` shows `UPDATING=True` for a long time.
+
+**Cause:** MachineConfig changes trigger a node reboot. On SNO there's only one
+node, so the entire cluster goes down during the update.
+
+**Fix:** Wait for the node to reboot and come back. Monitor with:
+```bash
+oc wait mcp master --for='condition=Updated=True' --timeout=1200s
+```
+
+If it stays stuck for more than 20 minutes, check:
+```bash
+oc get nodes                            # Is the node Ready?
+oc get mcp master -o yaml | grep -A5 conditions
+oc debug node/<node> -- chroot /host journalctl -u kubelet --no-pager | tail -50
+```
+
+---
+
+### General Debugging Commands
+
+```bash
+# Check install status
+oc get agentclusterinstall bronco -n bronco -o jsonpath='{.status.conditions}' | python3 -m json.tool
+
+# Check agent validation
+oc get agent -n bronco -o jsonpath='{.items[0].status.validationsInfo}' | python3 -m json.tool
+
+# Check assisted-service logs on hub
+oc logs -n multicluster-engine deployment/assisted-service --tail=100
+
+# Check what annotation was applied
+oc get agentclusterinstall bronco -n bronco \
+  -o jsonpath='{.metadata.annotations.agent-install\.openshift\.io/install-config-overrides}' && echo
+
+# Check MCP render status
+oc get mcp master -o yaml | grep -A10 conditions
+
+# Check operator pod status across all operator namespaces
+for ns in openshift-sriov-network-operator openshift-ptp openshift-logging openshift-storage; do
+  echo "=== $ns ===" && oc get pods -n $ns 2>/dev/null
+done
+
+# Full RDS verification (Step 18)
+echo "Capabilities:" && oc get clusterversion version -o jsonpath='{.status.capabilities.enabledCapabilities}' | python3 -m json.tool
+echo "PerformanceProfile:" && oc get performanceprofile
+echo "SR-IOV:" && oc get sriovnetworknodepolicy -n openshift-sriov-network-operator
+echo "PTP:" && oc get ptpconfig -n openshift-ptp
+echo "MCP:" && oc get mcp master
+echo "Console:" && oc get consoles.operator.openshift.io cluster -o jsonpath='{.spec.managementState}' && echo
+echo "Network diag:" && oc get network.operator cluster -o jsonpath='{.spec.disableNetworkDiagnostics}' && echo
+echo "SCTP:" && oc get machineconfig | grep sctp
+```
