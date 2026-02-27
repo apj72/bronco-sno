@@ -381,40 +381,10 @@ oc get network.operator cluster -o jsonpath='{.spec.defaultNetwork.type}'
 > Lab config files:
 > https://github.com/RHsyseng/5g-ran-deployments-on-ocp-lab/tree/lab-4.20/lab-materials/sno-config
 
-### Choose Your Approach
+### How Day-2 Config Works in Production vs Manual Learning
 
-There are three ways to apply the day-2 RDS configuration, from most manual
-to most automated:
-
-| Approach | When to use | What it does |
-|----------|-------------|--------------|
-| **A. Manual step-by-step** | Learning — understand each component | Walk through Steps 9-18 below, running each command individually |
-| **B. Automated script** | Repeat builds — apply everything in one shot | Run `day2-apply.sh` which executes all Steps 9-17 sequentially |
-| **C. ACM Policies (full GitOps)** | Production — zero-touch day-2 config | Define PolicyGenerator CRs on the hub; ACM pushes config to any matching cluster automatically |
-
-#### Option A: Manual Step-by-Step
-
-Continue reading from Step 9 below. Each step explains what it does and why.
-
-#### Option B: Automated Script
-
-Run the `day2-apply.sh` script to apply all day-2 configuration in one shot.
-This executes Steps 9-17 automatically, waits for operators to install, and
-waits for the node to reboot after the PerformanceProfile is applied.
-
-```bash
-export KUBECONFIG=~/bronco-kubeconfig
-cd /local_home/ajoyce/bronco-sno
-./day2-apply.sh
-```
-
-After the script completes, skip to **Step 18: Final RDS Verification** to
-confirm everything is applied correctly.
-
-#### Option C: ACM Policies (Full Automation)
-
-In production telco deployments, day-2 configuration is not applied manually
-or by script. Instead, it is managed declaratively via ACM policies:
+In production telco deployments, all day-2 configuration (Steps 9-17) is
+**automated via ACM policies stored in Git**. The standard flow is:
 
 1. **PolicyGenerator CRs** in a Git repo define the desired configuration
    (PerformanceProfile, SR-IOV, PTP, operator subscriptions, MachineConfigs, etc.)
@@ -428,13 +398,21 @@ or by script. Instead, it is managed declaratively via ACM policies:
 This is the approach used by **ZTP (Zero Touch Provisioning)** and is
 documented in the [5G RAN RDS Lab — ZTP section](https://labs.sysdeseng.com/5g-ran-deployments-on-ocp-lab/4.20/ztp-at-scale.html).
 
-> **Next step:** After validating the manual/scripted approach on bronco,
-> build the ACM policies so future clusters get day-2 config automatically.
-> This is tracked as a follow-up task.
+The Red Hat telco-reference repo has the actual source CRs:
+https://github.com/openshift-kni/telco-reference/tree/konflux-telco-core-rds-4-20/telco-ran/configuration/source-crs
+
+**If ACM policies are configured on the hub** that match bronco's labels,
+the day-2 config will be applied automatically after the cluster joins.
+Check Step 0 to see if those policies exist. If they do, skip to
+**Step 18: Final RDS Verification**.
+
+**If ACM policies are not configured** (or you want to understand each
+component), follow the manual steps below. These apply the same
+configuration that ACM policies would, just one step at a time.
 
 ---
 
-### Manual Day-2 Steps (Option A)
+### Manual Day-2 Steps
 
 All day-2 commands below run **on the bronco spoke cluster** from the jump box:
 
