@@ -11,4 +11,3 @@ resources:
   - 06-baremetalhost.yaml
   - 07-managedcluster.yaml
   - 08-bmh-secret.yaml
-  - 09-workload-partitioning.yaml
