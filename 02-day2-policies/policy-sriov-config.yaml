@@ -1,0 +1,90 @@
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: common-du-sriov-config
+  namespace: bronco
+  annotations:
+    policy.open-cluster-management.io/categories: CM Configuration Management
+    policy.open-cluster-management.io/standards: Telco RAN DU RDS
+    ran.openshift.io/ztp-deploy-wave: "3"
+spec:
+  disabled: false
+  remediationAction: inform
+  dependencies:
+    - apiVersion: policy.open-cluster-management.io/v1
+      kind: Policy
+      name: common-du-operator-subs
+      namespace: bronco
+      compliance: Compliant
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: sriov-operator-config
+        spec:
+          remediationAction: enforce
+          severity: low
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: sriovnetwork.openshift.io/v1
+                kind: SriovOperatorConfig
+                metadata:
+                  name: default
+                  namespace: openshift-sriov-network-operator
+                spec:
+                  configDaemonNodeSelector:
+                    node-role.kubernetes.io/master: ""
+                  disableDrain: true
+                  enableInjector: false
+                  enableOperatorWebhook: false
+                  logLevel: 0
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: sriov-network-node-policy
+        spec:
+          remediationAction: enforce
+          severity: low
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: sriovnetwork.openshift.io/v1
+                kind: SriovNetworkNodePolicy
+                metadata:
+                  name: bronco-e810-netdev
+                  namespace: openshift-sriov-network-operator
+                spec:
+                  deviceType: netdevice
+                  nicSelector:
+                    pfNames:
+                      - eno12399
+                  nodeSelector:
+                    node-role.kubernetes.io/master: ""
+                  numVfs: 2
+                  priority: 10
+                  resourceName: bronco_e810_netdev
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: sriov-network
+        spec:
+          remediationAction: enforce
+          severity: low
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: sriovnetwork.openshift.io/v1
+                kind: SriovNetwork
+                metadata:
+                  name: bronco-sriov-net
+                  namespace: openshift-sriov-network-operator
+                spec:
+                  ipam: '{"type":"host-local","subnet":"192.168.100.0/24"}'
+                  networkNamespace: default
+                  resourceName: bronco_e810_netdev
+                  vlan: 0

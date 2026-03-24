@@ -4,3 +4,4 @@ kind: Kustomization
 
 resources:
   - cars2-clusters-bronco-app.yaml
+  - cars2-day2-policies-app.yaml

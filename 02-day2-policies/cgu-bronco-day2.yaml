@@ -1,0 +1,21 @@
+---
+apiVersion: ran.openshift.io/v1alpha1
+kind: ClusterGroupUpgrade
+metadata:
+  name: bronco-day2-rollout
+  namespace: bronco
+spec:
+  clusters:
+    - bronco
+  enable: true
+  managedPolicies:
+    - common-du-cluster-tuning
+    - common-du-catalog-source
+    - common-du-operator-subs
+    - common-du-sriov-config
+    - common-du-ptp-config
+    - common-du-performance
+    - common-du-sctp
+  remediationStrategy:
+    maxConcurrency: 1
+    timeout: 2400

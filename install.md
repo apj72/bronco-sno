@@ -295,7 +295,19 @@ bronco-sno/
 │   ├── pull-secret.yaml           # Pull secret placeholder
 │   └── kustomization.yaml
 ├── 01-hub-apps/
-│   ├── cars2-clusters-bronco-app.yaml   # ArgoCD Application
+│   ├── cars2-clusters-bronco-app.yaml   # ArgoCD Application — base install
+│   ├── cars2-day2-policies-app.yaml     # ArgoCD Application — day-2 policies
+│   └── kustomization.yaml
+├── 02-day2-policies/                    # ACM policies for day-2 RDS configuration
+│   ├── placement.yaml                   # Placement + PlacementBinding (common-du-416 label)
+│   ├── policy-cluster-tuning.yaml       # Monitoring, console, network diagnostics
+│   ├── policy-catalog-source.yaml       # CatalogSource for operator installs
+│   ├── policy-operator-subs.yaml        # SR-IOV, PTP, Logging, LVM subscriptions
+│   ├── policy-sriov-config.yaml         # SR-IOV operator + node policy
+│   ├── policy-ptp-config.yaml           # PTP operator + ordinary clock config
+│   ├── policy-performance.yaml          # PerformanceProfile + Tuned patch
+│   ├── policy-sctp.yaml                 # SCTP MachineConfig
+│   ├── cgu-bronco-day2.yaml            # TALM ClusterGroupUpgrade for ordered rollout
 │   └── kustomization.yaml
 ├── manifests/                     # Direct resource manifests (active)
 │   ├── 01-namespace.yaml          # bronco namespace
@@ -546,7 +558,90 @@ oc get agentclusterinstall bronco -n bronco -o jsonpath='{.status.conditions}' |
 6. The assisted-service validates the host and begins installation
 7. OCP 4.20.14 is installed as a single-node cluster with workload partitioning enabled
 8. Once complete, the ManagedCluster is registered with ACM
-9. Day-2 configuration is applied (manually or via hub policies) — see `Telco_RDS_spoke_install.md`
+9. Day-2 Telco RDS configuration is applied — choose Option A or Option B below
+
+### Step 8: Day-2 Configuration (Telco RDS)
+
+Once the base SNO install completes and the ManagedCluster shows `Available=True`, the day-2 RDS configuration needs to be applied. There are two approaches — choose one:
+
+| | Option A — Automated (ACM/TALM) | Option B — Manual walkthrough |
+|---|---|---|
+| **How** | ACM policies + TALM enforce all CRs from the hub | You apply each CR by hand on the spoke |
+| **When to use** | Production-style deployment, repeatable builds, or re-deploying after a teardown | Learning, debugging, or when you need to inspect each step |
+| **Time** | ~40 min (mostly waiting for reboots) | ~60-90 min (hands-on) |
+| **Guide** | Continue reading below | Follow Steps 9-18 in `Telco_RDS_spoke_install.md` |
+
+---
+
+#### Option A — Automated (ACM policies + TALM)
+
+The day-2 policies are deployed in Step 6 when `oc apply -k 01-hub-apps/` is run. The second ArgoCD application (`cars2-day2-policies`) syncs the `02-day2-policies/` directory to the hub. ACM's `Policy` / `ConfigurationPolicy` framework enforces the Telco RAN DU RDS day-2 stack on any cluster with the label `common-du-416: "true"` (already set on the bronco ManagedCluster).
+
+**TALM controls the rollout order** via a `ClusterGroupUpgrade` CR with 4 waves:
+
+| Wave | Policies | What it does |
+|------|----------|--------------|
+| 1 | `common-du-cluster-tuning`, `common-du-catalog-source` | Reduce monitoring footprint, disable console/network diagnostics, create CatalogSource |
+| 2 | `common-du-operator-subs` | Install SR-IOV, PTP, Logging, LVM operators (waits for CatalogSource) |
+| 3 | `common-du-sriov-config`, `common-du-ptp-config` | Configure SR-IOV VFs and PTP ordinary clock (waits for operators) |
+| 4 | `common-du-performance`, `common-du-sctp` | Apply PerformanceProfile, Tuned patch, SCTP module (triggers node reboots) |
+
+Each policy has `dependencies` that gate execution — wave 2 won't start until wave 1 is `Compliant`, and so on.
+
+**Monitor day-2 progress:**
+
+```bash
+# Check CGU status
+oc get clustergroupupgrade bronco-day2-rollout -n bronco
+
+# Check individual policy compliance
+oc get policies -n bronco
+
+# Watch for node reboots during wave 4
+KUBECONFIG=~/bronco-kubeconfig oc get nodes -w
+
+# Detailed CGU status
+oc get clustergroupupgrade bronco-day2-rollout -n bronco -o jsonpath='{.status}' | python3 -m json.tool
+```
+
+**Verify day-2 completion:**
+
+Once all 7 policies show `Compliant` and the CGU shows `Succeeded`, the SNO is fully Telco RDS compliant:
+
+```bash
+# All policies should be Compliant
+oc get policies -n bronco
+
+# CGU should show Succeeded
+oc get clustergroupupgrade bronco-day2-rollout -n bronco -o jsonpath='{.status.conditions[?(@.type=="Succeeded")].status}'
+```
+
+Then run the full RDS verification from the spoke (see Step 18 in `Telco_RDS_spoke_install.md` or the Post-Install verification section below).
+
+---
+
+#### Option B — Manual walkthrough
+
+Follow Steps 9-18 in [`Telco_RDS_spoke_install.md`](Telco_RDS_spoke_install.md). That guide walks through each CR individually with explanations, wait conditions, and verification commands. It applies the exact same configuration as Option A but directly on the spoke rather than via hub policies.
+
+This is the recommended path when:
+- You are learning the Telco RDS stack for the first time
+- You need to debug or customise a specific CR before committing it to the policy
+- The hub does not have TALM or GitOps installed
+
+The automated policies in `02-day2-policies/` correspond 1:1 to the manual steps:
+
+| Manual step | Automated policy |
+|-------------|-----------------|
+| 9 (monitoring) | `common-du-cluster-tuning` |
+| 10 (console) | `common-du-cluster-tuning` |
+| 11 (network diag) | `common-du-cluster-tuning` |
+| 11b (CatalogSource) | `common-du-catalog-source` |
+| 12 (operator subs) | `common-du-operator-subs` |
+| 13 (SR-IOV config) | `common-du-sriov-config` |
+| 14 (PTP config) | `common-du-ptp-config` |
+| 15-16 (perf profile + tuned) | `common-du-performance` |
+| 17 (SCTP) | `common-du-sctp` |
 
 ## Post-Install Access
 
@@ -609,6 +704,129 @@ You can then copy the kubeconfig to your Mac and use it locally:
 scp ajoyce@192.168.38.31:/tmp/bronco-kubeconfig ~/.kube/bronco-kubeconfig
 KUBECONFIG=~/.kube/bronco-kubeconfig oc get nodes
 ```
+
+## Reconnecting the SNO to ACM After Hub Upgrade
+
+If the hub cluster was upgraded (e.g. to OCP 4.20) after the SNO was installed, the SNO may appear **unmanaged** or **Pending Import** in ACM. The klusterlet on the SNO may still be pointing at the old hub or the connection may have been lost. You can reconnect without reinstalling the SNO by re-importing it using the **auto-import-secret** and the SNO’s kubeconfig.
+
+### Prerequisites
+
+- Access to the **hub** cluster (e.g. `oc login` to the m4 hub).
+- The **bronco SNO** is still running and reachable (you can use its kubeconfig to run `oc get nodes`).
+- You have (or can obtain) a kubeconfig that can access the SNO API — either from the hub secret `bronco-admin-kubeconfig` in namespace `bronco`, or from a local file (e.g. `~/bronco-kubeconfig`).
+
+### Step 1: Check current state on the hub
+
+From the hub:
+
+```bash
+oc get managedcluster bronco
+oc get project bronco
+```
+
+- If `ManagedCluster bronco` exists but status is **Pending** or **NotAvailable**, proceed to create the auto-import-secret (Step 3).
+- If `ManagedCluster bronco` does **not** exist, ensure the `bronco` namespace and the `ManagedCluster` (and optionally `KlusterletAddonConfig`) exist before creating the secret (Step 2).
+
+### Step 2: (Only if ManagedCluster is missing) Create namespace and ManagedCluster
+
+If the `bronco` namespace or `ManagedCluster` was removed, recreate them so the import controller has a target cluster:
+
+```bash
+# Create namespace and label (required for ACM)
+oc create namespace bronco
+oc label namespace bronco cluster.open-cluster-management.io/managedCluster=bronco
+
+# Apply the ManagedCluster and KlusterletAddonConfig from this repo
+oc apply -f manifests/07-managedcluster.yaml
+```
+
+Wait until the import controller creates the `bronco-import` secret (optional; the auto-import-secret approach will drive the rest):
+
+```bash
+oc get secret bronco-import -n bronco 2>/dev/null || true
+```
+
+### Step 3: Get the SNO kubeconfig
+
+**Option A — From the hub (Hive stores it for clusters it created):**
+
+```bash
+oc get secret bronco-admin-kubeconfig -n bronco -o jsonpath='{.data.kubeconfig}' | base64 -d > /tmp/bronco-kubeconfig
+```
+
+**Option B — Use a kubeconfig you already have** (e.g. `~/bronco-kubeconfig`) that can access the SNO API. Ensure the current context in that file points at the bronco cluster.
+
+### Step 4: Create the auto-import-secret on the hub
+
+Create a secret in the **bronco** namespace containing the SNO kubeconfig. The import controller will use it once to (re)establish the klusterlet and then delete the secret.
+
+From the hub, with the kubeconfig content in a file (e.g. `/tmp/bronco-kubeconfig`):
+
+```bash
+# From the directory where you have the kubeconfig file
+KUBECONFIG_FILE="/tmp/bronco-kubeconfig"
+
+oc create secret generic auto-import-secret -n bronco \
+  --from-file=kubeconfig="$KUBECONFIG_FILE" \
+  --type=Opaque
+
+# Optional: set retry count if import might be slow or flaky
+oc patch secret auto-import-secret -n bronco -p '{"stringData":{"autoImportRetry":"5"}}'
+```
+
+Alternatively, create a YAML file and apply it (replace the kubeconfig content with your actual kubeconfig):
+
+```yaml
+# auto-import-secret.yaml — apply in namespace bronco
+apiVersion: v1
+kind: Secret
+metadata:
+  name: auto-import-secret
+  namespace: bronco
+stringData:
+  autoImportRetry: "5"
+  kubeconfig: |
+    # Paste full kubeconfig here (indented); current context should be the SNO
+type: Opaque
+```
+
+Then:
+
+```bash
+oc apply -f auto-import-secret.yaml
+```
+
+### Step 5: Verify reconnection
+
+From the hub, watch the managed cluster status until it is **Joined** and **Available**:
+
+```bash
+watch -n 5 'oc get managedcluster bronco'
+```
+
+Once status is **Available**, the SNO is managed by ACM again. Optionally check the klusterlet and add-ons on the SNO:
+
+```bash
+# From the SNO (use its kubeconfig)
+KUBECONFIG=~/bronco-kubeconfig oc get pod -n open-cluster-management-agent
+KUBECONFIG=~/bronco-kubeconfig oc get pod -n open-cluster-management-agent-addon
+```
+
+The `auto-import-secret` is removed by the import controller after a successful import.
+
+### If the secret already exists
+
+If you see an error that `auto-import-secret` already exists (e.g. from a previous failed attempt), delete it and try again:
+
+```bash
+oc delete secret auto-import-secret -n bronco
+# Then repeat Step 4
+```
+
+### References
+
+- Red Hat ACM: [Importing a cluster with the auto import secret](https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.5/html/multicluster_engine/importing-a-cluster#importing-wth-the-auto-import-secret) (MCE 2.5; procedure is similar in later versions).
+- [Reconnecting managed clusters when restoring an ACM hub](https://redhat.com/en/blog/a-guide-to-automatically-reconnecting-managed-clusters-when-restoring-a-red-hat-advanced-cluster-management-for-kubernetes-2.7-hub-cluster) — same auto-import-secret idea when the hub is restored or replaced.
 
 ## Troubleshooting
 

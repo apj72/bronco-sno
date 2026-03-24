@@ -1,0 +1,66 @@
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: common-du-ptp-config
+  namespace: bronco
+  annotations:
+    policy.open-cluster-management.io/categories: CM Configuration Management
+    policy.open-cluster-management.io/standards: Telco RAN DU RDS
+    ran.openshift.io/ztp-deploy-wave: "3"
+spec:
+  disabled: false
+  remediationAction: inform
+  dependencies:
+    - apiVersion: policy.open-cluster-management.io/v1
+      kind: Policy
+      name: common-du-operator-subs
+      namespace: bronco
+      compliance: Compliant
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: ptp-operator-config
+        spec:
+          remediationAction: enforce
+          severity: low
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: ptp.openshift.io/v1
+                kind: PtpOperatorConfig
+                metadata:
+                  name: default
+                  namespace: openshift-ptp
+                spec:
+                  daemonNodeSelector:
+                    node-role.kubernetes.io/master: ""
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: ptp-config
+        spec:
+          remediationAction: enforce
+          severity: low
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: ptp.openshift.io/v1
+                kind: PtpConfig
+                metadata:
+                  name: bronco-ordinary-clock
+                  namespace: openshift-ptp
+                spec:
+                  profile:
+                    - name: ordinary-clock
+                      interface: eno12399
+                      ptp4lOpts: "-2 -s"
+                      phc2sysOpts: "-a -r -n 24"
+                  recommend:
+                    - profile: ordinary-clock
+                      priority: 10
+                      match:
+                        - nodeLabel: node-role.kubernetes.io/master

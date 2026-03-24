@@ -1,3 +1,6 @@
 # Reference documentation (local only, not part of the declarative config)
 command-reference.md
 sno-install-explained.md
+
+# Cluster credentials (never commit)
+auth/

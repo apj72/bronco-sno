@@ -1,0 +1,54 @@
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: common-du-sctp
+  namespace: bronco
+  annotations:
+    policy.open-cluster-management.io/categories: CM Configuration Management
+    policy.open-cluster-management.io/standards: Telco RAN DU RDS
+    ran.openshift.io/ztp-deploy-wave: "4"
+spec:
+  disabled: false
+  remediationAction: inform
+  dependencies:
+    - apiVersion: policy.open-cluster-management.io/v1
+      kind: Policy
+      name: common-du-sriov-config
+      namespace: bronco
+      compliance: Compliant
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: sctp-machine-config
+        spec:
+          remediationAction: enforce
+          severity: low
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: machineconfiguration.openshift.io/v1
+                kind: MachineConfig
+                metadata:
+                  labels:
+                    machineconfiguration.openshift.io/role: master
+                  name: load-sctp-module-master
+                spec:
+                  config:
+                    ignition:
+                      version: 2.2.0
+                    storage:
+                      files:
+                        - contents:
+                            source: data:,
+                            verification: {}
+                          filesystem: root
+                          mode: 420
+                          path: /etc/modprobe.d/sctp-blacklist.conf
+                        - contents:
+                            source: data:text/plain;charset=utf-8,sctp
+                          filesystem: root
+                          mode: 420
+                          path: /etc/modules-load.d/sctp-load.conf

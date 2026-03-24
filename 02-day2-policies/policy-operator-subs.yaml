@@ -1,0 +1,188 @@
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: common-du-operator-subs
+  namespace: bronco
+  annotations:
+    policy.open-cluster-management.io/categories: CM Configuration Management
+    policy.open-cluster-management.io/standards: Telco RAN DU RDS
+    ran.openshift.io/ztp-deploy-wave: "2"
+spec:
+  disabled: false
+  remediationAction: inform
+  dependencies:
+    - apiVersion: policy.open-cluster-management.io/v1
+      kind: Policy
+      name: common-du-catalog-source
+      namespace: bronco
+      compliance: Compliant
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: sriov-operator-ns-and-sub
+        spec:
+          remediationAction: enforce
+          severity: low
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: openshift-sriov-network-operator
+                  labels:
+                    openshift.io/cluster-monitoring: "true"
+                  annotations:
+                    workload.openshift.io/allowed: management
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: operators.coreos.com/v1
+                kind: OperatorGroup
+                metadata:
+                  name: sriov-network-operators
+                  namespace: openshift-sriov-network-operator
+                spec:
+                  targetNamespaces:
+                    - openshift-sriov-network-operator
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: operators.coreos.com/v1alpha1
+                kind: Subscription
+                metadata:
+                  name: sriov-network-operator-subscription
+                  namespace: openshift-sriov-network-operator
+                spec:
+                  channel: "stable"
+                  name: sriov-network-operator
+                  source: redhat-operators
+                  sourceNamespace: openshift-marketplace
+                  installPlanApproval: Automatic
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: ptp-operator-ns-and-sub
+        spec:
+          remediationAction: enforce
+          severity: low
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: openshift-ptp
+                  labels:
+                    openshift.io/cluster-monitoring: "true"
+                  annotations:
+                    workload.openshift.io/allowed: management
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: operators.coreos.com/v1
+                kind: OperatorGroup
+                metadata:
+                  name: ptp-operators
+                  namespace: openshift-ptp
+                spec:
+                  targetNamespaces:
+                    - openshift-ptp
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: operators.coreos.com/v1alpha1
+                kind: Subscription
+                metadata:
+                  name: ptp-operator-subscription
+                  namespace: openshift-ptp
+                spec:
+                  channel: "stable"
+                  name: ptp-operator
+                  source: redhat-operators
+                  sourceNamespace: openshift-marketplace
+                  installPlanApproval: Automatic
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: logging-operator-ns-and-sub
+        spec:
+          remediationAction: enforce
+          severity: low
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: openshift-logging
+                  labels:
+                    openshift.io/cluster-monitoring: "true"
+                  annotations:
+                    workload.openshift.io/allowed: management
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: operators.coreos.com/v1
+                kind: OperatorGroup
+                metadata:
+                  name: cluster-logging
+                  namespace: openshift-logging
+                spec:
+                  targetNamespaces:
+                    - openshift-logging
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: operators.coreos.com/v1alpha1
+                kind: Subscription
+                metadata:
+                  name: cluster-logging
+                  namespace: openshift-logging
+                spec:
+                  channel: "stable-6.4"
+                  name: cluster-logging
+                  source: redhat-operators
+                  sourceNamespace: openshift-marketplace
+                  installPlanApproval: Automatic
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: lvms-operator-ns-and-sub
+        spec:
+          remediationAction: enforce
+          severity: low
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: openshift-storage
+                  labels:
+                    openshift.io/cluster-monitoring: "true"
+                  annotations:
+                    workload.openshift.io/allowed: management
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: operators.coreos.com/v1
+                kind: OperatorGroup
+                metadata:
+                  name: lvms-operator-operatorgroup
+                  namespace: openshift-storage
+                spec:
+                  targetNamespaces:
+                    - openshift-storage
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: operators.coreos.com/v1alpha1
+                kind: Subscription
+                metadata:
+                  name: lvms-operator
+                  namespace: openshift-storage
+                spec:
+                  channel: "stable-4.20"
+                  name: lvms-operator
+                  source: redhat-operators
+                  sourceNamespace: openshift-marketplace
+                  installPlanApproval: Automatic

@@ -1,0 +1,47 @@
+---
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: common-du-416-placement
+  namespace: bronco
+spec:
+  predicates:
+    - requiredClusterSelector:
+        labelSelector:
+          matchExpressions:
+            - key: common-du-416
+              operator: In
+              values:
+                - "true"
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: PlacementBinding
+metadata:
+  name: common-du-416-cluster-tuning-binding
+  namespace: bronco
+placementRef:
+  apiGroup: cluster.open-cluster-management.io
+  kind: Placement
+  name: common-du-416-placement
+subjects:
+  - apiGroup: policy.open-cluster-management.io
+    kind: Policy
+    name: common-du-cluster-tuning
+  - apiGroup: policy.open-cluster-management.io
+    kind: Policy
+    name: common-du-catalog-source
+  - apiGroup: policy.open-cluster-management.io
+    kind: Policy
+    name: common-du-operator-subs
+  - apiGroup: policy.open-cluster-management.io
+    kind: Policy
+    name: common-du-sriov-config
+  - apiGroup: policy.open-cluster-management.io
+    kind: Policy
+    name: common-du-ptp-config
+  - apiGroup: policy.open-cluster-management.io
+    kind: Policy
+    name: common-du-performance
+  - apiGroup: policy.open-cluster-management.io
+    kind: Policy
+    name: common-du-sctp
