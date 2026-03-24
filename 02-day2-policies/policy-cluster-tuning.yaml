@@ -40,25 +40,6 @@ spec:
         apiVersion: policy.open-cluster-management.io/v1
         kind: ConfigurationPolicy
         metadata:
-          name: console-operator-disable
-        spec:
-          remediationAction: enforce
-          severity: low
-          object-templates:
-            - complianceType: musthave
-              objectDefinition:
-                apiVersion: operator.openshift.io/v1
-                kind: Console
-                metadata:
-                  name: cluster
-                spec:
-                  logLevel: Normal
-                  managementState: Removed
-                  operatorLogLevel: Normal
-    - objectDefinition:
-        apiVersion: policy.open-cluster-management.io/v1
-        kind: ConfigurationPolicy
-        metadata:
           name: network-diagnostics-disable
         spec:
           remediationAction: enforce
