@@ -16,6 +16,7 @@ spec:
     - common-du-ptp-config
     - common-du-performance
     - common-du-sctp
+    - common-du-disable-console
   remediationStrategy:
     maxConcurrency: 1
     timeout: 2400

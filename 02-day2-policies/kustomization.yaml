@@ -10,4 +10,5 @@ resources:
   - policy-ptp-config.yaml
   - policy-performance.yaml
   - policy-sctp.yaml
+  - policy-disable-console.yaml
   - cgu-bronco-day2.yaml

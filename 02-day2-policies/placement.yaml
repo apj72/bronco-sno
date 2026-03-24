@@ -53,3 +53,6 @@ subjects:
   - apiGroup: policy.open-cluster-management.io
     kind: Policy
     name: common-du-sctp
+  - apiGroup: policy.open-cluster-management.io
+    kind: Policy
+    name: common-du-disable-console
