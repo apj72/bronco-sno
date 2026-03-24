@@ -3,7 +3,7 @@ apiVersion: policy.open-cluster-management.io/v1
 kind: Policy
 metadata:
   name: common-du-catalog-source
-  namespace: bronco
+  namespace: ztp-policies
   annotations:
     policy.open-cluster-management.io/categories: CM Configuration Management
     policy.open-cluster-management.io/standards: Telco RAN DU RDS

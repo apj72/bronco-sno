@@ -3,7 +3,7 @@ apiVersion: ran.openshift.io/v1alpha1
 kind: ClusterGroupUpgrade
 metadata:
   name: bronco-day2-rollout
-  namespace: bronco
+  namespace: ztp-policies
 spec:
   clusters:
     - bronco

@@ -3,7 +3,7 @@ apiVersion: cluster.open-cluster-management.io/v1beta1
 kind: Placement
 metadata:
   name: common-du-416-placement
-  namespace: bronco
+  namespace: ztp-policies
 spec:
   predicates:
     - requiredClusterSelector:
@@ -18,7 +18,7 @@ apiVersion: policy.open-cluster-management.io/v1
 kind: PlacementBinding
 metadata:
   name: common-du-416-cluster-tuning-binding
-  namespace: bronco
+  namespace: ztp-policies
 placementRef:
   apiGroup: cluster.open-cluster-management.io
   kind: Placement

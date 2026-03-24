@@ -3,7 +3,7 @@ apiVersion: policy.open-cluster-management.io/v1
 kind: Policy
 metadata:
   name: common-du-performance
-  namespace: bronco
+  namespace: ztp-policies
   annotations:
     policy.open-cluster-management.io/categories: CM Configuration Management
     policy.open-cluster-management.io/standards: Telco RAN DU RDS
@@ -15,12 +15,12 @@ spec:
     - apiVersion: policy.open-cluster-management.io/v1
       kind: Policy
       name: common-du-sriov-config
-      namespace: bronco
+      namespace: ztp-policies
       compliance: Compliant
     - apiVersion: policy.open-cluster-management.io/v1
       kind: Policy
       name: common-du-ptp-config
-      namespace: bronco
+      namespace: ztp-policies
       compliance: Compliant
   policy-templates:
     - objectDefinition:
